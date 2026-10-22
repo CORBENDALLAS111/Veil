@@ -33,6 +33,8 @@ private struct MeanRandom: RandomSource {
         let out = root.appendingPathComponent("smoke")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let planar = try input.planarRGBShapedArray(minValue: -1, maxValue: 1)
+        var diagnostics: [String: Any] = ["planar_shape": planar.shape,
+            "planar_first": Array(planar.scalars.prefix(5)), "planar_min": planar.scalars.min()!, "planar_max": planar.scalars.max()!]
         print("PLANAR", planar.shape, planar.scalars.min()!, planar.scalars.max()!, Array(planar.scalars.prefix(5)))
         for (name, units) in [("cpu", MLComputeUnits.cpuOnly), ("ane", MLComputeUnits.cpuAndNeuralEngine)] {
             let configuration = MLModelConfiguration()
@@ -40,6 +42,10 @@ private struct MeanRandom: RandomSource {
             let encoder = Encoder(modelAt: modelURL.appendingPathComponent("VAEEncoder.mlmodelc"), configuration: configuration)
             var random: any RandomSource = MeanRandom()
             let latent = try encoder.encode(input, scaleFactor: 0.18215, random: &random)
+            diagnostics["latent_\(name)"] = ["shape": latent.shape, "nonfinite": latent.scalars.filter { !$0.isFinite }.count,
+                "first": Array(latent.scalars.prefix(10)).map { $0.isFinite ? Double($0) : -999999 },
+                "min": Double(latent.scalars.filter(\.isFinite).min() ?? -999999),
+                "max": Double(latent.scalars.filter(\.isFinite).max() ?? -999999)]
             print("VAE LATENT", name, latent.shape, latent.scalars.filter { !$0.isFinite }.count,
                   latent.scalars.min()!, latent.scalars.max()!, latent.scalars.reduce(0, +) / Float(latent.scalarCount))
             encoder.unloadResources()
@@ -49,6 +55,28 @@ private struct MeanRandom: RandomSource {
             let destination = CGImageDestinationCreateWithURL(out.appendingPathComponent("vae-\(name).png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
             CGImageDestinationAddImage(destination, image, nil)
             guard CGImageDestinationFinalize(destination) else { throw NeuralError.invalidOutput }
+            if name == "cpu" {
+                let model = try MLModel(contentsOf: modelURL.appendingPathComponent("VAEDecoder.mlmodelc"), configuration: configuration)
+                let scaled = MLShapedArray<Float>(scalars: latent.scalars.map { $0 / 0.18215 }, shape: latent.shape)
+                let prediction = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(scaled)]))
+                let raw = prediction.featureValue(for: "image")!.multiArrayValue!
+                let all = (0..<raw.count).map { raw[$0].floatValue }
+                diagnostics["raw_decoder"] = ["shape": raw.shape.map(\.intValue), "nonfinite": all.filter { !$0.isFinite }.count,
+                    "min": Double(all.filter(\.isFinite).min() ?? -999999), "max": Double(all.filter(\.isFinite).max() ?? -999999),
+                    "first": Array(all.prefix(10)).map { $0.isFinite ? Double($0) : -999999 }]
+                var manual = [UInt8](repeating: 255, count: 512 * 512 * 4)
+                for i in 0..<(512 * 512) {
+                    for c in 0..<3 {
+                        let value = all[c * 512 * 512 + i]
+                        manual[i * 4 + c] = value.isFinite ? UInt8(max(0, min(255, ((value + 1) * 127.5).rounded()))) : 0
+                    }
+                }
+                let manualImage = try NeuralRaster.image(manual, width: 512, height: 512)
+                let manualDestination = CGImageDestinationCreateWithURL(out.appendingPathComponent("vae-manual.png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
+                CGImageDestinationAddImage(manualDestination, manualImage, nil)
+                _ = CGImageDestinationFinalize(manualDestination)
+            }
+            try JSONSerialization.data(withJSONObject: diagnostics, options: [.prettyPrinted, .sortedKeys]).write(to: out.appendingPathComponent("diagnostics.json"))
         }
         let start = Date()
         let output = try NeuralRegenerator().process(input, modelURL: modelURL, strength: 0.12) { _, text in print(text) }
