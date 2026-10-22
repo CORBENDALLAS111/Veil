@@ -35,7 +35,7 @@ struct StudioView: View {
                 .padding(.bottom, 12)
                 .frame(maxWidth: 650)
                 .frame(maxWidth: .infinity)
-                .background(VeilStyle.paper.opacity(0.97))
+                .background(VeilStyle.paper)
         }
         .preferredColorScheme(.light)
         .tint(VeilStyle.ink)

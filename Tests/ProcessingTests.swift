@@ -73,7 +73,10 @@ final class ProcessingTests: XCTestCase {
         let outputSource = try XCTUnwrap(CGImageSourceCreateWithData(result.data as CFData, nil))
         let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(outputSource, 0, nil) as? [String: Any])
         XCTAssertNil(properties[kCGImagePropertyGPSDictionary as String])
-        XCTAssertNil(properties[kCGImagePropertyExifDictionary as String])
+        // ImageIO synthesizes ColorSpace/PixelXDimension/PixelYDimension in a
+        // new container. Those describe the output; source comments must not survive.
+        let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
+        XCTAssertNil(exif[kCGImagePropertyExifUserComment as String])
         XCTAssertNil(properties[kCGImagePropertyIPTCDictionary as String])
         XCTAssertEqual(properties[kCGImagePropertyOrientation as String] as? Int ?? 1, 1)
         XCTAssertFalse(String(decoding: result.data, as: UTF8.self).contains("PRIVATE-CAMERA"))

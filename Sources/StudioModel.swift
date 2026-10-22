@@ -179,7 +179,10 @@ extension PhotoProcessor {
 /// Synthetic artwork only; no user photographs are bundled or uploaded for CI.
 @MainActor enum FixturePhoto {
     static func make() -> Data {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 720, height: 960))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 720, height: 960), format: format)
         return renderer.pngData { context in
             let ctx = context.cgContext
             let colors = [UIColor(red: 0.72, green: 0.81, blue: 0.78, alpha: 1).cgColor,
