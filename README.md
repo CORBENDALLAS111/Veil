@@ -2,6 +2,8 @@
 
 A small native iOS photo studio for experimental processing of invisible noise and frequency patterns. SwiftUI, Core Image and ImageIO. iOS 17+. Russian interface. No accounts, subscriptions, analytics, network processing or third-party dependencies.
 
+Version 0.2 uses a compact photo-first interface, native Liquid Glass controls on iOS 26+, and automatic light/dark appearance. Earlier systems use native bordered controls and material. The main screen contains only photo import; technical details live in the Info sheet. Glass is applied to controls, never the photograph.
+
 **This version does not provide verified SynthID removal.** It has no SynthID encoder, decoder or detector. Generic denoising may leave the watermark intact. A completed processing operation is never presented as a negative SynthID detection. Verify exported files independently at [Google's detector](https://synthid.com/). No success rate has been measured.
 
 ## Use

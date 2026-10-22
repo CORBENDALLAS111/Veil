@@ -3,6 +3,7 @@ import SwiftUI
 struct ComparisonView: View {
     let original: UIImage
     let processed: UIImage?
+    let maximumHeight: CGFloat
     @Binding var position: Double
 
     var body: some View {
@@ -24,8 +25,7 @@ struct ComparisonView: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(VeilStyle.ink)
                             .frame(width: 44, height: 44)
-                            .background(.white, in: Circle())
-                            .shadow(color: .black.opacity(0.1), radius: 10, y: 3)
+                            .modifier(ComparisonHandleSurface())
                             .offset(x: geometry.size.width * position - 22)
                             .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .named("photoComparison")).onChanged { value in
                                 guard geometry.size.width > 0,
@@ -40,17 +40,17 @@ struct ComparisonView: View {
                 .coordinateSpace(name: "photoComparison")
             }
             .aspectRatio(max(0.55, min(1.6, original.size.width / max(1, original.size.height))), contentMode: .fit)
-            .frame(maxHeight: 440)
+            .frame(maxHeight: maximumHeight)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(processed == nil ? "Выбранное фото" : "Сравнение до и после")
             if processed != nil {
                 HStack {
-                    Text("Оригинал")
+                    Text("До")
                     Slider(value: $position, in: 0...1)
                         .tint(VeilStyle.ink)
                         .accessibilityLabel("Граница сравнения")
                         .accessibilityIdentifier("comparisonSlider")
-                    Text("Результат")
+                    Text("После")
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(VeilStyle.muted)

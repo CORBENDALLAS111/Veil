@@ -1,7 +1,7 @@
 import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
+import UniformTypeIdentifiers
 
 struct StudioView: View {
     @State private var model = StudioModel()
@@ -11,36 +11,57 @@ struct StudioView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                header
-                if let preview = model.originalPreview {
-                    editor(preview)
-                } else {
-                    introduction
+        NavigationStack {
+            GeometryReader { geometry in
+                ScrollView {
+                    Group {
+                        if let preview = model.originalPreview {
+                            editor(preview, photoHeight: max(220, min(580, geometry.size.height - 270)))
+                        } else {
+                            emptyState.frame(minHeight: max(240, geometry.size.height - 130))
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
+                    .frame(maxWidth: 650)
+                    .frame(maxWidth: .infinity)
+                }
+                .accessibilityIdentifier("studioScroll")
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    actions
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 10)
+                        .frame(maxWidth: 650)
+                        .frame(maxWidth: .infinity)
                 }
             }
-            .padding(.horizontal, 26)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
-            .frame(maxWidth: 650)
-            .frame(maxWidth: .infinity)
+            .background { StudioBackground() }
+            .navigationTitle("Veil")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if model.source != nil {
+                        Button {
+                            model.reset()
+                            selectedPhoto = nil
+                        } label: { Image(systemName: "plus") }
+                            .accessibilityLabel("Другое фото")
+                            .accessibilityIdentifier("resetButton")
+                            .disabled(model.isSaving)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showsInfo = true } label: { Image(systemName: "info") }
+                        .accessibilityLabel("О приложении")
+                        .accessibilityIdentifier("infoButton")
+                }
+            }
         }
-        .accessibilityIdentifier("studioScroll")
-        .background(VeilStyle.paper.ignoresSafeArea())
-        .foregroundStyle(VeilStyle.ink)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            actions
-                .padding(.horizontal, 26)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
-                .frame(maxWidth: 650)
-                .frame(maxWidth: .infinity)
-                .background(VeilStyle.paper)
-        }
-        .preferredColorScheme(.light)
-        .tint(VeilStyle.ink)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: model.result != nil)
+        .tint(VeilStyle.accent)
+        .preferredColorScheme(previewScheme)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.result != nil)
         .onChange(of: selectedPhoto) { _, item in
             if let item { model.select(item) }
         }
@@ -69,209 +90,162 @@ struct StudioView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text("veil.").font(.system(size: 38, weight: .medium, design: .serif)).tracking(-2)
-                Circle().fill(VeilStyle.accent).frame(width: 8, height: 8).accessibilityHidden(true)
-            }
-            .accessibilityLabel("Veil")
-            Spacer()
-            if model.source != nil {
-                Button {
-                    model.reset()
-                    selectedPhoto = nil
-                } label: {
-                    Image(systemName: "plus").font(.system(size: 18, weight: .medium)).frame(width: 46, height: 46)
-                }
-                .accessibilityLabel("Другое фото")
-                .accessibilityIdentifier("resetButton")
-                .disabled(model.isSaving)
-            }
-            Button { showsInfo = true } label: {
-                Image(systemName: "info").font(.system(size: 17, weight: .medium))
-                    .frame(width: 46, height: 46)
-                    .overlay(Circle().stroke(VeilStyle.line, lineWidth: 1))
-            }
-            .accessibilityLabel("Как работает Veil")
-            .accessibilityIdentifier("infoButton")
-        }
-    }
-
-    private var introduction: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 7) {
-                Image(systemName: "waveform.path")
-                Text("SYNTHID / PHOTO STUDIO").tracking(2)
-            }
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .foregroundStyle(VeilStyle.muted)
-            .padding(.top, 20)
-
-            Text("Меньше шума.\nБольше фото.")
-                .font(.system(.largeTitle, design: .serif, weight: .medium))
-                .tracking(-1.1)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("homeTitle")
-            Text("Обработка невидимых паттернов.\nСпокойно, просто, на вашем iPhone.")
-                .font(.body)
-                .foregroundStyle(VeilStyle.muted)
-                .lineSpacing(5)
-                .fixedSize(horizontal: false, vertical: true)
-
-            NoiseEmblem().frame(maxWidth: .infinity).padding(.vertical, 5)
-
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "iphone").font(.system(size: 21, weight: .light))
-                    .frame(width: 24).padding(.top, 2)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Ваше фото остаётся вашим").font(.subheadline.weight(.medium))
-                    Text("Без загрузки на сервер, аккаунта и подписки.")
-                        .font(.footnote).foregroundStyle(VeilStyle.muted)
-                }
+    private var emptyState: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 46, weight: .ultraLight))
+                .foregroundStyle(VeilStyle.accent)
+                .frame(width: 128, height: 128)
+                .background(VeilStyle.accent.opacity(0.075), in: RoundedRectangle(cornerRadius: 36))
+                .accessibilityHidden(true)
+            VStack(spacing: 8) {
+                Text("Добавьте фото").font(.title3.weight(.semibold))
+                Text("JPEG · PNG · HEIC · WebP").font(.caption).foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
-    private func editor(_ preview: UIImage) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(model.result == nil ? "Тихая работа\nс пикселями." : "Разница\nв деталях.")
-                    .font(.system(.largeTitle, design: .serif, weight: .medium))
-                    .tracking(-1)
+    private func editor(_ preview: UIImage, photoHeight: CGFloat) -> some View {
+        VStack(spacing: 16) {
+            HStack {
                 if let source = model.source {
-                    Text("\(source.width) × \(source.height)  ·  \(Int64(source.data.count).formatted(.byteCount(style: .file)))")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(VeilStyle.muted)
+                    Text(verbatim: "\(source.width) × \(source.height)")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         .accessibilityIdentifier("photoDimensions")
                 }
-            }
-
-            ComparisonView(original: preview, processed: model.resultPreview, position: $model.comparison)
-
-            if let output = model.result {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        Label("Обработка завершена", systemImage: "circle.lefthalf.filled")
-                            .font(.subheadline.weight(.medium))
-                        Spacer()
-                        Text(output.format.title).font(.system(.caption, design: .monospaced))
-                    }
-                    HStack {
-                        Text("\(Int64(output.data.count).formatted(.byteCount(style: .file))) · \(output.elapsed.formatted(.number.precision(.fractionLength(1)))) с")
-                        Spacer()
-                        Text(output.strength.title)
-                    }
-                    .font(.footnote).foregroundStyle(VeilStyle.muted)
-                    Rectangle().fill(VeilStyle.line).frame(height: 1)
-                    Label("Статус SynthID: не проверен", systemImage: "info.circle")
-                        .font(.footnote.weight(.medium))
-                        .accessibilityIdentifier("verificationStatus")
-                    Text("Проверьте результат в детекторе. Изменение пикселей само по себе не подтверждает удаление метки.")
-                        .font(.footnote).foregroundStyle(VeilStyle.muted).lineSpacing(3)
-                    Link(destination: URL(string: "https://synthid.com/")!) {
-                        Label("Открыть SynthID Detector", systemImage: "arrow.up.right")
-                            .font(.footnote.weight(.semibold)).frame(minHeight: 44)
-                    }
-                    Button("Изменить обработку") { model.clearResult() }
-                        .font(.subheadline.weight(.medium)).frame(minHeight: 44)
-                        .accessibilityIdentifier("editAgainButton")
-                }
-            } else {
-                controls
-            }
-        }
-    }
-
-    private var controls: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Сила обработки").font(.subheadline.weight(.medium))
                 Spacer()
-                Menu {
-                    Picker("Формат экспорта", selection: $model.format) {
-                        ForEach(ExportFormat.allCases) { format in Text(format.title).tag(format) }
+                if let result = model.result {
+                    Text("\(Int64(result.data.count).formatted(.byteCount(style: .file))) · \(result.format.title)")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                } else {
+                    Menu {
+                        Picker("Формат", selection: $model.format) {
+                            ForEach(ExportFormat.allCases) { format in Text(format.title).tag(format) }
+                        }
+                    } label: {
+                        HStack(spacing: 5) { Text(model.format.title); Image(systemName: "chevron.down") }
+                            .font(.caption.weight(.medium)).frame(minWidth: 52, minHeight: 44)
                     }
-                } label: {
-                    HStack(spacing: 4) { Text(model.format.title); Image(systemName: "chevron.down") }
-                        .font(.system(.caption, design: .monospaced)).frame(minWidth: 60, minHeight: 44)
+                    .disabled(model.isWorking)
+                    .accessibilityLabel("Формат экспорта: \(model.format.title)")
                 }
-                .accessibilityLabel("Формат экспорта: \(model.format.title)")
             }
-            Picker("Сила обработки", selection: $model.strength) {
-                ForEach(ProcessingStrength.allCases) { strength in Text(strength.title).tag(strength) }
-            }
-            .pickerStyle(.segmented)
-            Text(model.strength.detail).font(.footnote).foregroundStyle(VeilStyle.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            if model.source?.hasAlpha == true && model.format == .jpeg {
-                Text("Прозрачность будет заменена белым фоном.")
-                    .font(.footnote).foregroundStyle(VeilStyle.muted)
+
+            ComparisonView(original: preview, processed: model.resultPreview,
+                           maximumHeight: photoHeight, position: $model.comparison)
+
+            if model.result != nil {
+                HStack(spacing: 12) {
+                    Label("SynthID не проверен", systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("verificationStatus")
+                    Spacer(minLength: 0)
+                    Link(destination: URL(string: "https://synthid.com/")!) {
+                        Image(systemName: "arrow.up.right").frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Открыть SynthID Detector")
+                }
+            } else {
+                Picker("Сила обработки", selection: $model.strength) {
+                    ForEach(ProcessingStrength.allCases) { strength in Text(strength.title).tag(strength) }
+                }
+                .pickerStyle(.segmented)
+                .disabled(model.isWorking)
+                .accessibilityHint(model.strength.detail)
+                if model.source?.hasAlpha == true && model.format == .jpeg {
+                    Text("Прозрачность заменится белым фоном").font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
-        .disabled(model.isWorking)
     }
 
-    @ViewBuilder private var actions: some View {
-        VStack(spacing: 12) {
-            if model.isWorking {
-                HStack(spacing: 10) {
-                    ProgressView().tint(VeilStyle.ink)
-                    Text(model.isImporting ? "Открываем фото…" : "Обрабатываем пиксели…")
-                        .font(.subheadline.weight(.medium))
-                    Spacer()
-                    Button("Отменить") { model.cancel() }.font(.subheadline)
-                        .frame(minHeight: 44).accessibilityIdentifier("cancelButton")
-                }
-                .frame(minHeight: 58)
-            } else if model.result != nil {
+    private var actions: some View {
+        VStack(spacing: 8) {
+            VeilGlassGroup {
                 HStack(spacing: 12) {
-                    Button { Task { await model.prepareShare() } } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 20)).frame(width: 58, height: 58)
-                            .overlay(Circle().stroke(VeilStyle.line, lineWidth: 1))
-                    }
-                    .accessibilityLabel("Поделиться файлом")
-                    .accessibilityIdentifier("shareButton")
-                    Button { Task { await model.save() } } label: {
+                    if model.isWorking {
                         HStack(spacing: 10) {
-                            if model.isSaving { ProgressView().tint(VeilStyle.paper) }
-                            else { Image(systemName: "arrow.down") }
-                            Text(model.isSaving ? "Сохраняем…" : "Сохранить фото")
+                            ProgressView()
+                            Text(model.isImporting ? "Открываем…" : "Обработка…").font(.subheadline)
+                            Spacer()
+                            Button(action: model.cancel) { Image(systemName: "xmark").frame(width: 28, height: 28) }
+                                .modifier(VeilActionStyle())
+                                .accessibilityLabel("Отменить")
+                                .accessibilityIdentifier("cancelButton")
                         }
+                        .frame(minHeight: 54)
+                    } else if model.result != nil {
+                        Button { Task { await model.prepareShare() } } label: {
+                            Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28)
+                        }
+                        .modifier(VeilActionStyle())
+                        .foregroundStyle(.primary)
+                        .accessibilityLabel("Поделиться файлом")
+                        .accessibilityIdentifier("shareButton")
+
+                        Button { Task { await model.save() } } label: {
+                            HStack(spacing: 8) {
+                                if model.isSaving { ProgressView().tint(VeilStyle.onAccent) }
+                                else { Image(systemName: "arrow.down") }
+                                Text(model.isSaving ? "Сохраняем…" : "Сохранить")
+                            }
+                            .font(.headline).foregroundStyle(VeilStyle.onAccent)
+                            .frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .modifier(VeilActionStyle(prominent: true))
+                        .accessibilityIdentifier("saveButton")
+                        .disabled(model.isSaving)
+
+                        Button(action: model.clearResult) {
+                            Image(systemName: "slider.horizontal.3").frame(width: 28, height: 28)
+                        }
+                        .modifier(VeilActionStyle())
+                        .foregroundStyle(.primary)
+                        .accessibilityLabel("Изменить обработку")
+                        .accessibilityIdentifier("editAgainButton")
+                        .disabled(model.isSaving)
+                    } else if model.source != nil {
+                        Button(action: model.process) {
+                            Label("Обработать", systemImage: "waveform.path")
+                                .font(.headline).foregroundStyle(VeilStyle.onAccent)
+                                .frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .modifier(VeilActionStyle(prominent: true))
+                        .accessibilityIdentifier("processButton")
+                    } else {
+                        PhotosPicker(selection: $selectedPhoto, matching: .images, preferredItemEncoding: .current) {
+                            Label("Выбрать фото", systemImage: "plus")
+                                .font(.headline).foregroundStyle(VeilStyle.onAccent)
+                                .frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .modifier(VeilActionStyle(prominent: true))
+                        .accessibilityIdentifier("photoPickerButton")
+                        Button { showsFiles = true } label: {
+                            Image(systemName: "folder").frame(width: 28, height: 28)
+                        }
+                        .modifier(VeilActionStyle())
+                        .foregroundStyle(.primary)
+                        .accessibilityLabel("Открыть из Файлов")
+                        .accessibilityIdentifier("filePickerButton")
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .accessibilityIdentifier("saveButton")
-                    .disabled(model.isSaving)
                 }
-                if let message = model.saveMessage {
-                    Text(message).font(.footnote).foregroundStyle(VeilStyle.muted)
-                        .accessibilityIdentifier("saveConfirmation")
-                }
-            } else if model.source != nil {
-                Button(action: model.process) {
-                    HStack(spacing: 10) { Image(systemName: "waveform.path"); Text("Обработать фото"); Image(systemName: "arrow.right") }
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .accessibilityIdentifier("processButton")
-                Text("Экспериментально · удаление SynthID не гарантируется")
-                    .font(.caption2).foregroundStyle(VeilStyle.muted).multilineTextAlignment(.center)
-            } else {
-                PhotosPicker(selection: $selectedPhoto, matching: .images, preferredItemEncoding: .current) {
-                    HStack(spacing: 10) { Image(systemName: "plus"); Text("Выбрать фото"); Spacer(); Image(systemName: "arrow.right") }
-                        .padding(.horizontal, 24)
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .accessibilityIdentifier("photoPickerButton")
-                Button { showsFiles = true } label: {
-                    Label("Открыть из Файлов", systemImage: "folder").font(.footnote.weight(.medium))
-                        .frame(minHeight: 44)
-                }
-                .accessibilityIdentifier("filePickerButton")
-                Text("Экспериментальная обработка · SynthID может сохраниться")
-                    .font(.caption2).foregroundStyle(VeilStyle.muted).multilineTextAlignment(.center)
+            }
+            if let message = model.saveMessage {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("saveConfirmation")
+            } else if model.result == nil && !model.isWorking {
+                Text("Экспериментальная обработка").font(.caption2).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var previewScheme: ColorScheme? {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-ui-dark") { return .dark }
+        if ProcessInfo.processInfo.arguments.contains("-ui-light") { return .light }
+        #endif
+        return nil
     }
 }
 
@@ -285,34 +259,29 @@ private struct ShareSheet: UIViewControllerRepresentable {
 
 private struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
+    private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "" }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Text("Немного\nпрозрачности.")
-                        .font(.system(.largeTitle, design: .serif, weight: .medium)).tracking(-1)
-                    section("Что делает Veil", "Локальное шумоподавление Core Image и двухуровневое вейвлет-преобразование Хаара ослабляют мелкие шумовые и частотные компоненты изображения. Чем сильнее обработка, тем больше могут измениться текстуры.")
-                    section("Что с SynthID", "Это экспериментальный способ обработки, а не подтверждённый алгоритм удаления SynthID. У приложения нет декодера SynthID и встроенного детектора. Метка может остаться даже после сильной обработки. Проценты «очистки» не вычисляются.")
-                    section("Что с метаданными", "Экспорт создаёт новый PNG или JPEG без копирования исходных EXIF, GPS, XMP, IPTC и Content Credentials. Цветовое пространство результата — sRGB. Отсутствие метаданных не означает отсутствие SynthID.")
-                    section("Ваши файлы", "Фото обрабатываются на устройстве. Здесь нет аналитики, аккаунтов, рекламы и сетевой обработки. Оригинал не перезаписывается. Поддерживаются JPEG, PNG, HEIC и WebP до 50 МБ и 20 мегапикселей; анимации не поддерживаются. HDR преобразуется в SDR sRGB.")
-                    section("Проверка результата", "Кнопка детектора открывает сайт Google в браузере. Приложение не отправляет ему фото автоматически. Если решите проверить файл, его загрузку вы выполняете самостоятельно.")
-                    Link("О технологии SynthID ↗", destination: URL(string: "https://deepmind.google/models/synthid/")!)
-                    Text("Veil 0.1.1 · Независимый проект. Не связан с Google или removesynthid.io.")
-                        .font(.caption).foregroundStyle(VeilStyle.muted)
+            Form {
+                Section("SynthID") {
+                    Text("Экспериментальная обработка шума и частотных паттернов. Удаление SynthID не подтверждено.")
+                        .accessibilityIdentifier("synthidExplanation")
+                    Link("Открыть детектор", destination: URL(string: "https://synthid.com/")!)
                 }
-                .padding(26).frame(maxWidth: 650).frame(maxWidth: .infinity)
+                Section("Фото") {
+                    Text("Обработка на устройстве. Оригинал сохраняется. До 20 МП и 50 МБ.")
+                }
+                Section("Экспорт") {
+                    Text("PNG с прозрачностью или JPEG с белым фоном. Без копирования исходных метаданных. SDR sRGB.")
+                }
+                Section { Text("Veil \(version)").foregroundStyle(.secondary) }
             }
-            .background(VeilStyle.paper)
-            .foregroundStyle(VeilStyle.ink)
+            .navigationTitle("О приложении")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } } }
         }
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-    }
-
-    private func section(_ title: String, _ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline)
-            Text(text).font(.subheadline).foregroundStyle(VeilStyle.muted).lineSpacing(4)
-        }
     }
 }
