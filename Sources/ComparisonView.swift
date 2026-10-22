@@ -23,20 +23,21 @@ struct ComparisonView: View {
                         Image(systemName: "chevron.left.chevron.right")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(VeilStyle.ink)
-                            .frame(width: 38, height: 38)
+                            .frame(width: 44, height: 44)
                             .background(.white, in: Circle())
                             .shadow(color: .black.opacity(0.1), radius: 10, y: 3)
-                            .offset(x: geometry.size.width * position - 19)
+                            .offset(x: geometry.size.width * position - 22)
+                            .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .named("photoComparison")).onChanged { value in
+                                guard geometry.size.width > 0,
+                                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                                position = min(1, max(0, value.location.x / geometry.size.width))
+                            })
                             .accessibilityHidden(true)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 25))
                 .contentShape(Rectangle())
-                .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { value in
-                    guard processed != nil, geometry.size.width > 0,
-                          abs(value.translation.width) > abs(value.translation.height) else { return }
-                    position = min(1, max(0, value.location.x / geometry.size.width))
-                })
+                .coordinateSpace(name: "photoComparison")
             }
             .aspectRatio(max(0.55, min(1.6, original.size.width / max(1, original.size.height))), contentMode: .fit)
             .frame(maxHeight: 440)
