@@ -28,6 +28,8 @@ The requested reference is [removesynthid.io](https://removesynthid.io/). Its pu
 
 Google describes SynthID as robust to ordinary edits: [official overview](https://deepmind.google/models/synthid/). Research on neural regeneration and latent-space attacks should not be confused with this lightweight filter: [MarkNull](https://arxiv.org/abs/2608.10166). That model is not included in Veil.
 
+A deeper [research review dated 2026-10-22](docs/research/README.md) audits academic evidence, public removal repositories, OpenAI-specific claims and native iPhone feasibility. It includes source revisions, limitations, and independently recalculated image-difference metrics; it does not establish a removal rate for Veil.
+
 ## Build
 
 On a Mac with Xcode 26.2+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen):

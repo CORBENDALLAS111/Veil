@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-10-22",
+  "source_repository": "https://github.com/balyakin/synthid-remover",
+  "method": "PIL RGB decode, float64, per-channel mean, PSNR=10*log10(255^2/MSE)",
+  "width": 1536,
+  "height": 1024,
+  "original_sha256": "88bc31c3485a353e4dfa472f4c3098db095139e75116bf37adb864284736f88b",
+  "processed_sha256": "b70c2f0eb64c09264ec908ef97b97f1a15cd9713185e0ccc5b555177705cf451",
+  "mae_255": 16.91333071390788,
+  "mse_255": 556.5707959069146,
+  "psnr_db": 20.67559946346032,
+  "synthid_independently_checked": false
+}
