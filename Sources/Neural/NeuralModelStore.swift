@@ -4,7 +4,8 @@ import Foundation
 struct NeuralManifest: Decodable, Sendable {
     struct File: Decodable, Sendable {
         let path: String
-        let url: URL
+        let url: URL?
+        let bundledPath: String?
         let bytes: Int64
         let sha256: String
     }
@@ -13,20 +14,28 @@ struct NeuralManifest: Decodable, Sendable {
     let files: [File]
 
     static func bundled() throws -> Self {
-        #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
-        #endif
+        let bundle = resourceBundle
         guard let url = bundle.url(forResource: "NeuralManifest", withExtension: "json") else {
             throw NeuralError.modelUnavailable
         }
         let manifest = try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
         guard !manifest.files.isEmpty, manifest.files.allSatisfy({ file in
             !file.path.hasPrefix("/") && !file.path.split(separator: "/").contains("..") &&
-            file.url.scheme == "https" && file.url.host == "huggingface.co" && file.sha256.count == 64
+            ((file.url?.scheme == "https" && file.url?.host == "huggingface.co") ||
+             (file.bundledPath?.hasPrefix("BundledVAE/") == true && !file.bundledPath!.split(separator: "/").contains(".."))) && file.sha256.count == 64
         }) else { throw NeuralError.modelUnavailable }
         return manifest
+    }
+    static var resourceBundle: Bundle {
+        #if SWIFT_PACKAGE
+        Bundle.module
+        #else
+        Bundle.main
+        #endif
+    }
+    static var downloadLabel: String {
+        let size = Double((try? bundled().totalBytes) ?? 974_547_868) / 1_000_000_000
+        return String(format: "%.2f ГБ", locale: Locale(identifier: "ru_RU"), size)
     }
 }
 
@@ -94,16 +103,27 @@ actor NeuralModelStore {
         for file in manifest.files {
             try Task.checkCancellation()
             let destination = staging.appendingPathComponent(file.path)
+            let downloadBytes = file.url == nil ? 0 : file.bytes
             if fm.fileExists(atPath: destination.path), try hash(destination) == file.sha256 {
-                completed += file.bytes
+                completed += downloadBytes
                 progress(Double(completed) / Double(manifest.totalBytes))
                 continue
             }
             let base = completed
+            if let path = file.bundledPath {
+                guard let resources = NeuralManifest.resourceBundle.resourceURL else { throw NeuralError.modelUnavailable }
+                let original = resources.appendingPathComponent(path)
+                guard try hash(original) == file.sha256 else { throw NeuralError.corruptDownload }
+                try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+                try fm.copyItem(at: original, to: destination)
+                continue
+            }
+            guard let url = file.url else { throw NeuralError.modelUnavailable }
             let delegate = DownloadProgress { bytes in
                 progress(min(1, Double(base + min(bytes, file.bytes)) / Double(manifest.totalBytes)))
             }
-            let (temporary, response) = try await session.download(from: file.url, delegate: delegate)
+            let (temporary, response) = try await session.download(from: url, delegate: delegate)
             defer { try? fm.removeItem(at: temporary) }
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw NeuralError.downloadFailed }
             let count = try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize
@@ -112,7 +132,7 @@ actor NeuralModelStore {
             try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
             try fm.moveItem(at: temporary, to: destination)
-            completed += file.bytes
+            completed += downloadBytes
             progress(Double(completed) / Double(manifest.totalBytes))
         }
         try Task.checkCancellation()

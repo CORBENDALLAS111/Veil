@@ -113,6 +113,39 @@ enum NeuralRaster {
     }
 }
 
+enum NeuralQuality {
+    /// Detects gross corruption or lost source structure, not watermark presence.
+    static func validate(_ output: [UInt8], against source: [UInt8], strength: Float) throws {
+        guard output.count == source.count, !output.isEmpty, output.count % 4 == 0 else { throw NeuralError.invalidOutput }
+        var sourceSum = [Double](repeating: 0, count: 3)
+        var outputSum = [Double](repeating: 0, count: 3)
+        var sourceSquares: Double = 0, outputSquares: Double = 0, cross: Double = 0, difference: Double = 0
+        let count = Double(source.count / 4)
+        for i in stride(from: 0, to: source.count, by: 4) {
+            for c in 0..<3 {
+                let a = Double(source[i + c]), b = Double(output[i + c])
+                sourceSum[c] += a
+                outputSum[c] += b
+                sourceSquares += a * a
+                outputSquares += b * b
+                cross += a * b
+                difference += abs(a - b)
+            }
+        }
+        for c in 0..<3 {
+            sourceSquares -= sourceSum[c] * sourceSum[c] / count
+            outputSquares -= outputSum[c] * outputSum[c] / count
+            cross -= sourceSum[c] * outputSum[c] / count
+        }
+        let maximumDifference: Double = strength <= 0.12 ? 25 : (strength <= 0.20 ? 35 : 45)
+        guard difference / (count * 3) < maximumDifference else { throw NeuralError.invalidOutput }
+        if sourceSquares / (count * 3) > 64 {
+            let correlation = cross / sqrt(max(1, sourceSquares * outputSquares))
+            guard correlation.isFinite, correlation > (strength <= 0.12 ? 0.7 : 0.5) else { throw NeuralError.invalidOutput }
+        }
+    }
+}
+
 /// Synchronous engine, owned by PhotoProcessor's actor. No model crosses isolation boundaries.
 final class NeuralRegenerator {
     func process(_ image: CGImage, modelURL: URL, strength: Float,
@@ -129,8 +162,16 @@ final class NeuralRegenerator {
         compute.computeUnits = .cpuAndNeuralEngine
         #endif
         progress(0, "Подготовка нейросети…")
-        let pipeline = try StableDiffusionPipeline(resourcesAt: modelURL, controlNet: [],
-                                                  configuration: compute, reduceMemory: true)
+        let vaeCompute = MLModelConfiguration()
+        vaeCompute.computeUnits = .cpuAndGPU
+        vaeCompute.allowLowPrecisionAccumulationOnGPU = false
+        let urls = StableDiffusionPipeline.ResourceURLs(resourcesAt: modelURL)
+        let tokenizer = try BPETokenizer(mergesAt: urls.mergesURL, vocabularyAt: urls.vocabURL)
+        let pipeline = StableDiffusionPipeline(
+            textEncoder: TextEncoder(tokenizer: tokenizer, modelAt: urls.textEncoderURL, configuration: compute),
+            unet: Unet(modelAt: urls.unetURL, configuration: compute),
+            decoder: Decoder(modelAt: urls.decoderURL, configuration: vaeCompute),
+            encoder: Encoder(modelAt: urls.encoderURL, configuration: vaeCompute), reduceMemory: true)
         defer { pipeline.unloadResources() }
         let origins = plan.origins
         for (index, origin) in origins.enumerated() {
@@ -152,7 +193,9 @@ final class NeuralRegenerator {
                 guard let first = images.first, let result = first, result.width == 512, result.height == 512 else {
                     throw NeuralError.invalidOutput
                 }
-                accumulator.append(NeuralRaster.pixels(result), x: origin.x, y: origin.y)
+                let output = NeuralRaster.pixels(result)
+                try NeuralQuality.validate(output, against: accumulator.input(x: origin.x, y: origin.y), strength: strength)
+                accumulator.append(output, x: origin.x, y: origin.y)
             }
         }
         return try NeuralRaster.image(accumulator.finish(), width: plan.width, height: plan.height)

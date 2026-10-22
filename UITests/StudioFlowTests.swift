@@ -15,10 +15,13 @@ final class StudioFlowTests: XCTestCase {
 
     func testProcessingComparisonAndReset() {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-fixture", "-ui-light", "-ui-metadata"]
+        app.launchArguments = ["-ui-fixture", "-ui-light"]
         app.launch()
         let process = app.buttons["processButton"]
         XCTAssertTrue(process.waitForExistence(timeout: 15))
+        XCTAssertTrue(process.label.contains("Загрузить нейросеть"))
+        capture("03-neural-ready")
+        app.segmentedControls["processingMode"].buttons["Метаданные"].tap()
         capture("03-photo-ready")
         process.tap()
         XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 45))

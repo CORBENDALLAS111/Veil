@@ -20,7 +20,11 @@ targets:
   Veil:
     type: application
     platform: iOS
-    sources: [Sources]
+    sources:
+      - path: Sources
+        excludes: [Neural/BundledVAE]
+      - path: Sources/Neural/BundledVAE
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.corbendallas111.veil

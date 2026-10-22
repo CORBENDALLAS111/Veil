@@ -16,7 +16,7 @@ struct StudioView: View {
                 ScrollView {
                     Group {
                         if let preview = model.originalPreview {
-                            editor(preview, photoHeight: max(220, min(580, geometry.size.height - 270)))
+                            editor(preview, photoHeight: max(220, min(580, geometry.size.height - (model.result == nil ? 365 : 270))))
                         } else {
                             emptyState.frame(minHeight: max(240, geometry.size.height - 130))
                         }
@@ -162,7 +162,7 @@ struct StudioView: View {
                     .pickerStyle(.segmented)
                     .disabled(model.isWorking)
                     .accessibilityHint(model.strength.detail)
-                    Text(model.modelReady ? "На устройстве · до 1536 px · детали могут измениться" : "Модель 1,14 ГБ · загрузка один раз · фото остаётся на устройстве")
+                    Text(model.modelReady ? "На устройстве · до 1536 px · детали могут измениться" : "Модель \(model.modelDownloadLabel) · загрузка один раз · фото остаётся на устройстве")
                         .font(.caption2).foregroundStyle(.secondary)
                 } else {
                     Text("Удаляет метаданные. SynthID в пикселях может сохраниться.")
@@ -225,7 +225,7 @@ struct StudioView: View {
                         .disabled(model.isSaving)
                     } else if model.source != nil {
                         Button(action: model.process) {
-                            Label(model.mode == .neural && !model.modelReady ? "Загрузить нейросеть · 1,14 ГБ" : "Обработать",
+                            Label(model.mode == .neural && !model.modelReady ? "Загрузить нейросеть · \(model.modelDownloadLabel)" : "Обработать",
                                   systemImage: model.mode == .neural ? "sparkles" : "document.badge.minus")
                                 .font(.headline).foregroundStyle(VeilStyle.onAccent)
                                 .frame(maxWidth: .infinity, minHeight: 28)
@@ -289,7 +289,7 @@ private struct AboutView: View {
                     Link("Открыть детектор", destination: URL(string: "https://synthid.com/")!)
                 }
                 Section("Фото") {
-                    Text("Фото обрабатываются на устройстве. Модель Apple загружается один раз — 1,14 ГБ. Нужно от 6 ГБ оперативной памяти. Оригинал сохраняется.")
+                    Text("Фото обрабатываются на устройстве. Модель загружается один раз — \(NeuralManifest.downloadLabel). Кодек полной точности включён в приложение. Нужно от 6 ГБ оперативной памяти. Оригинал сохраняется.")
                     Text("Нейросеть обрабатывает длинную сторону до 1536 пикселей. Текст, лица и мелкие детали могут измениться. Метаданные очищаются в обоих режимах.")
                 }
                 Section("Экспорт") {

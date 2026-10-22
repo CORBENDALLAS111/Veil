@@ -14,6 +14,7 @@ final class StudioModel {
     var strength: ProcessingStrength = .balanced
     var mode: ProcessingMode = .neural
     var modelReady = false
+    let modelDownloadLabel = NeuralManifest.downloadLabel
     var progress: Double = 0
     var workLabel = "Обработка…"
     var format: ExportFormat = .png

@@ -10,3 +10,5 @@ xcuserdata/
 __pycache__/
 .swiftpm/
 .build/
+Sources/Neural/BundledVAE/*
+!Sources/Neural/BundledVAE/.gitkeep

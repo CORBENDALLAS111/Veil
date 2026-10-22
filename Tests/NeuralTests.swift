@@ -3,6 +3,19 @@ import XCTest
 @testable import Veil
 
 final class NeuralTests: XCTestCase {
+    func testNeuralQualityRejectsLostStructureAndAcceptsSmallChanges() throws {
+        var source = [UInt8](repeating: 255, count: 512 * 512 * 4)
+        for i in 0..<(512 * 512) {
+            for c in 0..<3 { source[i * 4 + c] = UInt8(30 + (i + c * 37) % 180) }
+        }
+        var close = source
+        for i in stride(from: 0, to: source.count, by: 4) {
+            for c in 0..<3 { close[i + c] += 2 }
+        }
+        XCTAssertNoThrow(try NeuralQuality.validate(close, against: source, strength: 0.12))
+        XCTAssertThrowsError(try NeuralQuality.validate([UInt8](repeating: 128, count: source.count), against: source, strength: 0.30))
+    }
+
     func testCoreImageBridgeDoesNotFlipOrTransposePixels() throws {
         let bytes: [UInt8] = [255, 0, 0, 255, 0, 255, 0, 255,
                               0, 0, 255, 255, 20, 40, 60, 255,
@@ -56,11 +69,11 @@ final class NeuralTests: XCTestCase {
 
     func testModelManifestIsCompleteAndPinned() throws {
         let manifest = try NeuralManifest.bundled()
-        XCTAssertEqual(manifest.files.count, 22)
-        XCTAssertEqual(manifest.files.reduce(0) { $0 + $1.bytes }, manifest.totalBytes)
+        XCTAssertGreaterThanOrEqual(manifest.files.count, 22)
+        XCTAssertEqual(manifest.files.filter { $0.url != nil }.reduce(0) { $0 + $1.bytes }, manifest.totalBytes)
         for component in ["TextEncoder", "VAEEncoder", "Unet", "VAEDecoder"] {
             XCTAssertTrue(manifest.files.contains { $0.path == "\(component).mlmodelc/weights/weight.bin" })
         }
-        XCTAssertTrue(manifest.files.allSatisfy { !$0.url.absoluteString.contains("/main/") })
+        XCTAssertTrue(manifest.files.allSatisfy { !($0.url?.absoluteString.contains("/main/") ?? false) })
     }
 }

@@ -14,6 +14,6 @@ let package = Package(
                                                "Sources/Design.swift", "Sources/ComparisonView.swift", "Sources/PrivacyInfo.xcprivacy",
                                                "README.md", "project.yml", "Sources/Licenses", "build"],
                           sources: ["Sources/Neural/NeuralModelStore.swift", "Sources/Neural/NeuralRegenerator.swift", "Tools/NeuralSmoke.swift"],
-                          resources: [.copy("Sources/Neural/NeuralManifest.json")])
+                          resources: [.copy("Sources/Neural/NeuralManifest.json"), .copy("Sources/Neural/BundledVAE")])
     ]
 )
