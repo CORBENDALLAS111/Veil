@@ -14,7 +14,12 @@ private struct MeanRandom: RandomSource {
 }
 
 @main struct NeuralSmoke {
+    static func predict(_ model: MLModel, _ features: MLFeatureProvider) throws -> MLFeatureProvider {
+        try autoreleasepool { try model.prediction(from: features) }
+    }
+
     static func main() async throws {
+        setbuf(stdout, nil)
         let root = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         let store = NeuralModelStore(parent: root)
         let modelURL = try await store.install { value in
@@ -63,7 +68,7 @@ private struct MeanRandom: RandomSource {
             guard CGImageDestinationFinalize(destination) else { throw NeuralError.invalidOutput }
             if name == "cpu" {
                 let encoderModel = try MLModel(contentsOf: modelURL.appendingPathComponent("VAEEncoder.mlmodelc"), configuration: configuration)
-                let rawEncoder = try await encoderModel.prediction(from: MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(planar)]))
+                let rawEncoder = try predict(encoderModel, MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(planar)]))
                 let encoderArray = rawEncoder.featureValue(for: "latent")!.multiArrayValue!
                 let encoderValues = (0..<encoderArray.count).map { encoderArray[$0].floatValue }
                 diagnostics["raw_encoder"] = ["shape": encoderArray.shape.map(\.intValue), "nonfinite": encoderValues.filter { !$0.isFinite }.count,
@@ -72,7 +77,7 @@ private struct MeanRandom: RandomSource {
                     "max": Double(encoderValues.filter(\.isFinite).max() ?? -999999)]
                 let model = try MLModel(contentsOf: modelURL.appendingPathComponent("VAEDecoder.mlmodelc"), configuration: configuration)
                 let scaled = MLShapedArray<Float>(scalars: latent.scalars.map { $0 / 0.18215 }, shape: latent.shape)
-                let prediction = try await model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(scaled)]))
+                let prediction = try predict(model, MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(scaled)]))
                 let raw = prediction.featureValue(for: "image")!.multiArrayValue!
                 let all = (0..<raw.count).map { raw[$0].floatValue }
                 diagnostics["raw_decoder"] = ["shape": raw.shape.map(\.intValue), "nonfinite": all.filter { !$0.isFinite }.count,
@@ -91,6 +96,7 @@ private struct MeanRandom: RandomSource {
                 _ = CGImageDestinationFinalize(manualDestination)
             }
             try JSONSerialization.data(withJSONObject: diagnostics, options: [.prettyPrinted, .sortedKeys]).write(to: out.appendingPathComponent("diagnostics.json"))
+            if ProcessInfo.processInfo.environment["VEIL_DIAGNOSTIC_ONLY"] == "1" { return }
         }
         let start = Date()
         let output = try NeuralRegenerator().process(input, modelURL: modelURL, strength: 0.12) { _, text in print(text) }

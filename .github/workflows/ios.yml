@@ -27,9 +27,13 @@ jobs:
           path: build/neural-model
           key: veil-sd21-dca5f2fda9c5-v1
       - name: Run real Core ML image regeneration on a synthetic image
+        timeout-minutes: 15
+        env:
+          VEIL_DIAGNOSTIC_ONLY: ${{ inputs.neural_only && '1' || '0' }}
         run: |
           set -o pipefail
           mkdir -p build
+          python3 -c 'import shutil; shutil.rmtree("build/neural-model/smoke", ignore_errors=True)'
           swift run -c release VeilNeuralSmoke "$PWD/build/neural-model" 2>&1 | tee build/neural.log
       - uses: actions/upload-artifact@v4
         if: always()
