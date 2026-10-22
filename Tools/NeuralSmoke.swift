@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import CoreML
 import StableDiffusion
 import Darwin
+import Metal
 
 private struct MeanRandom: RandomSource {
     mutating func nextNormal(mean: Double, stdev: Double) -> Double { mean }
@@ -38,6 +39,10 @@ private struct MeanRandom: RandomSource {
         let input = try NeuralRaster.image(pixels, width: 512, height: 512)
         let out = root.appendingPathComponent("smoke")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let originalDestination = CGImageDestinationCreateWithURL(out.appendingPathComponent("input.png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(originalDestination, input, nil)
+        _ = CGImageDestinationFinalize(originalDestination)
+        print("METAL DEVICE", MTLCreateSystemDefaultDevice()?.name ?? "none")
         let planar = try input.planarRGBShapedArray(minValue: -1, maxValue: 1)
         var diagnostics: [String: Any] = ["planar_shape": planar.shape,
             "planar_first": Array(planar.scalars.prefix(5)), "planar_min": planar.scalars.min()!, "planar_max": planar.scalars.max()!]
@@ -48,9 +53,10 @@ private struct MeanRandom: RandomSource {
         }
         diagnostics["planar_mae"] = planarError / Double(512 * 512 * 3)
         print("PLANAR", planar.shape, planar.scalars.min()!, planar.scalars.max()!, Array(planar.scalars.prefix(5)))
-        for (name, units) in [("cpu", MLComputeUnits.cpuOnly), ("ane", MLComputeUnits.cpuAndNeuralEngine)] {
+        for (name, units) in [("gpu", MLComputeUnits.cpuAndGPU), ("cpu", MLComputeUnits.cpuOnly), ("ane", MLComputeUnits.cpuAndNeuralEngine)] {
             let configuration = MLModelConfiguration()
             configuration.computeUnits = units
+            configuration.allowLowPrecisionAccumulationOnGPU = false
             let encoder = Encoder(modelAt: modelURL.appendingPathComponent("VAEEncoder.mlmodelc"), configuration: configuration)
             var random: any RandomSource = MeanRandom()
             let latent = try encoder.encode(input, scaleFactor: 0.18215, random: &random)
