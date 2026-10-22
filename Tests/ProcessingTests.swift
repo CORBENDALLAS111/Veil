@@ -48,7 +48,7 @@ final class ProcessingTests: XCTestCase {
     }
 
     func testOddSizedConstantImageDoesNotDevelopBorderArtifacts() throws {
-        var pixels = Array(repeating: [UInt8(77), 128, 201, 123], count: 7 * 9).flatMap { $0 }
+        var pixels: [UInt8] = Array(repeating: [77, 128, 201, 123] as [UInt8], count: 7 * 9).flatMap { $0 }
         let original = pixels
         try WaveletDenoiser.reduce(pixels: &pixels, width: 7, height: 9, threshold: 5)
         XCTAssertEqual(pixels, original)
@@ -108,7 +108,7 @@ final class ProcessingTests: XCTestCase {
     }
 
     func testPNGPreservesTransparencyAndJPEGCompositesOnWhite() async throws {
-        let pixels = Array(repeating: [UInt8(0), 255, 0, 128], count: 16 * 16).flatMap { $0 }
+        let pixels: [UInt8] = Array(repeating: [0, 255, 0, 128] as [UInt8], count: 16 * 16).flatMap { $0 }
         let provider = CGDataProvider(data: Data(pixels) as CFData)!
         let image = CGImage(width: 16, height: 16, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 64,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
