@@ -296,7 +296,7 @@ private struct AboutView: View {
                     section("Ваши файлы", "Фото обрабатываются на устройстве. Здесь нет аналитики, аккаунтов, рекламы и сетевой обработки. Оригинал не перезаписывается. Поддерживаются JPEG, PNG, HEIC и WebP до 50 МБ и 20 мегапикселей; анимации не поддерживаются. HDR преобразуется в SDR sRGB.")
                     section("Проверка результата", "Кнопка детектора открывает сайт Google в браузере. Приложение не отправляет ему фото автоматически. Если решите проверить файл, его загрузку вы выполняете самостоятельно.")
                     Link("О технологии SynthID ↗", destination: URL(string: "https://deepmind.google/models/synthid/")!)
-                    Text("Veil 0.1 · Независимый проект. Не связан с Google или removesynthid.io.")
+                    Text("Veil 0.1.1 · Независимый проект. Не связан с Google или removesynthid.io.")
                         .font(.caption).foregroundStyle(VeilStyle.muted)
                 }
                 .padding(26).frame(maxWidth: 650).frame(maxWidth: .infinity)

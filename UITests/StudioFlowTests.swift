@@ -26,6 +26,8 @@ final class StudioFlowTests: XCTestCase {
         capture("04-result")
         app.swipeUp()
         XCTAssertTrue(app.staticTexts["verificationStatus"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["verificationStatus"].isHittable, "Vertical swipes over the photo must scroll to result details")
+        XCTAssertTrue(app.buttons["editAgainButton"].isHittable)
         XCTAssertEqual(app.staticTexts["verificationStatus"].label, "Статус SynthID: не проверен")
         capture("05-result-details")
         app.swipeDown()

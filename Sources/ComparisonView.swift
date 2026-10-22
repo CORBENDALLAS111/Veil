@@ -32,8 +32,9 @@ struct ComparisonView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 25))
                 .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                    guard processed != nil, geometry.size.width > 0 else { return }
+                .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { value in
+                    guard processed != nil, geometry.size.width > 0,
+                          abs(value.translation.width) > abs(value.translation.height) else { return }
                     position = min(1, max(0, value.location.x / geometry.size.width))
                 })
             }
