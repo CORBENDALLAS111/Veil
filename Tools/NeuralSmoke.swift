@@ -42,8 +42,9 @@ private struct MeanRandom: RandomSource {
         var diagnostics: [String: Any] = ["planar_shape": planar.shape,
             "planar_first": Array(planar.scalars.prefix(5)), "planar_min": planar.scalars.min()!, "planar_max": planar.scalars.max()!]
         var planarError: Double = 0
+        let planarScalars = planar.scalars
         for i in 0..<(512 * 512) {
-            for c in 0..<3 { planarError += abs(Double(planar.scalars[c * 512 * 512 + i]) - (Double(pixels[i * 4 + c]) / 127.5 - 1)) }
+            for c in 0..<3 { planarError += abs(Double(planarScalars[c * 512 * 512 + i]) - (Double(pixels[i * 4 + c]) / 127.5 - 1)) }
         }
         diagnostics["planar_mae"] = planarError / Double(512 * 512 * 3)
         print("PLANAR", planar.shape, planar.scalars.min()!, planar.scalars.max()!, Array(planar.scalars.prefix(5)))
