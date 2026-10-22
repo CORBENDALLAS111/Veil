@@ -26,6 +26,7 @@ struct StudioView: View {
             .frame(maxWidth: 650)
             .frame(maxWidth: .infinity)
         }
+        .accessibilityIdentifier("studioScroll")
         .background(VeilStyle.paper.ignoresSafeArea())
         .foregroundStyle(VeilStyle.ink)
         .safeAreaInset(edge: .bottom, spacing: 0) {

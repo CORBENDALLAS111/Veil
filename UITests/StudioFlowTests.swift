@@ -24,13 +24,22 @@ final class StudioFlowTests: XCTestCase {
         XCTAssertTrue(app.sliders["comparisonSlider"].exists)
         app.sliders["comparisonSlider"].adjust(toNormalizedSliderPosition: 0.75)
         capture("04-result")
-        app.swipeUp()
+        let scroll = app.scrollViews["studioScroll"]
+        // Start inside the photograph, above the fixed export toolbar. A swipe
+        // on the entire application can start on that toolbar instead.
+        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.65))
+            .press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.2)))
+        if !app.buttons["editAgainButton"].isHittable {
+            scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.65))
+                .press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.2)))
+        }
         XCTAssertTrue(app.staticTexts["verificationStatus"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["verificationStatus"].isHittable, "Vertical swipes over the photo must scroll to result details")
         XCTAssertTrue(app.buttons["editAgainButton"].isHittable)
         XCTAssertEqual(app.staticTexts["verificationStatus"].label, "Статус SynthID: не проверен")
         capture("05-result-details")
-        app.swipeDown()
+        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.25))
+            .press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.8)))
         app.buttons["resetButton"].tap()
         XCTAssertTrue(app.buttons["photoPickerButton"].exists)
     }
