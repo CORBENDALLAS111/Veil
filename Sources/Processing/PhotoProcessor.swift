@@ -12,9 +12,9 @@ enum ProcessingStrength: String, CaseIterable, Identifiable, Sendable {
     }
     var detail: String {
         switch self {
-        case .gentle: "Мягкое подавление шума. Больше мелких деталей."
-        case .balanced: "Шумоподавление и обработка частотных паттернов."
-        case .strong: "Более заметная обработка. Текстуры могут стать мягче."
+        case .gentle: "Мягкая нейросетевая регенерация. Меньше изменений."
+        case .balanced: "Нейросетевая регенерация. Детали могут измениться."
+        case .strong: "Более глубокая регенерация. Лица, буквы и текстуры могут измениться."
         }
     }
     var threshold: Float {
@@ -23,6 +23,15 @@ enum ProcessingStrength: String, CaseIterable, Identifiable, Sendable {
     var noiseLevel: Float {
         switch self { case .gentle: 0.008; case .balanced: 0.018; case .strong: 0.035 }
     }
+    var neuralStrength: Float {
+        switch self { case .gentle: 0.12; case .balanced: 0.20; case .strong: 0.30 }
+    }
+}
+
+enum ProcessingMode: String, CaseIterable, Identifiable, Sendable {
+    case neural, metadata
+    var id: Self { self }
+    var title: String { self == .neural ? "Нейросеть" : "Метаданные" }
 }
 
 enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
@@ -69,6 +78,45 @@ enum ProcessingError: LocalizedError {
 actor PhotoProcessor {
     private let context = CIContext(options: [.cacheIntermediates: false, .outputPremultiplied: false])
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
+    func processNeural(_ photo: ImportedPhoto, strength: ProcessingStrength, format: ExportFormat,
+                       modelURL: URL, progress: @escaping @Sendable (Double, String) -> Void) throws -> ProcessedPhoto {
+        try Task.checkCancellation()
+        _ = try checkedSource(photo.data)
+        let start = Date()
+        let input = try orientedImage(photo.data)
+        guard let image = context.createCGImage(input, from: input.extent.integral, format: .RGBA8, colorSpace: colorSpace)
+        else { throw ProcessingError.invalidImage }
+        let result = try NeuralRegenerator().process(image, modelURL: modelURL, strength: strength.neuralStrength, progress: progress)
+        try Task.checkCancellation()
+        let encoded = try exportImage(result, format: format)
+        return ProcessedPhoto(data: encoded, preview: try preview(orientedImage(encoded)),
+                              width: result.width, height: result.height, format: format,
+                              strength: strength, elapsed: Date().timeIntervalSince(start))
+    }
+
+    func stripMetadata(_ photo: ImportedPhoto, format: ExportFormat) throws -> ProcessedPhoto {
+        try Task.checkCancellation()
+        _ = try checkedSource(photo.data)
+        let start = Date()
+        let input = try orientedImage(photo.data)
+        guard let image = context.createCGImage(input, from: input.extent.integral, format: .RGBA8, colorSpace: colorSpace)
+        else { throw ProcessingError.invalidImage }
+        let encoded = try exportImage(image, format: format)
+        return ProcessedPhoto(data: encoded, preview: try preview(orientedImage(encoded)), width: image.width,
+                              height: image.height, format: format, strength: .gentle, elapsed: Date().timeIntervalSince(start))
+    }
+
+    private func exportImage(_ image: CGImage, format: ExportFormat) throws -> Data {
+        if format == .png { return try encode(image, format: format) }
+        var pixels = NeuralRaster.pixels(image)
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let alpha = Int(pixels[i + 3])
+            for c in 0..<3 { pixels[i + c] = UInt8((Int(pixels[i + c]) * alpha + 255 * (255 - alpha)) / 255) }
+            pixels[i + 3] = 255
+        }
+        return try encode(NeuralRaster.image(pixels, width: image.width, height: image.height), format: format)
+    }
 
     func load(_ data: Data) throws -> ImportedPhoto {
         let source = try checkedSource(data)

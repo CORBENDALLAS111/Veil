@@ -12,6 +12,10 @@ final class StudioModel {
     var originalPreview: UIImage?
     var resultPreview: UIImage?
     var strength: ProcessingStrength = .balanced
+    var mode: ProcessingMode = .neural
+    var modelReady = false
+    var progress: Double = 0
+    var workLabel = "Обработка…"
     var format: ExportFormat = .png
     var isWorking = false
     var isSaving = false
@@ -22,9 +26,45 @@ final class StudioModel {
     var shareURL: URL?
 
     @ObservationIgnored private let processor = PhotoProcessor()
+    @ObservationIgnored private let neuralModels = NeuralModelStore()
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var operationID = UUID()
     @ObservationIgnored private var exportedURLs: [URL] = []
+
+    func refreshModel() async {
+        modelReady = (try? await neuralModels.installedURL()) != nil
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-ui-metadata") { mode = .metadata }
+        #endif
+    }
+
+    func downloadModel() {
+        guard !isWorking else { return }
+        guard ProcessInfo.processInfo.physicalMemory >= 5_500_000_000 else {
+            errorMessage = NeuralError.insufficientMemory.localizedDescription
+            return
+        }
+        let id = operationID
+        isWorking = true
+        progress = 0
+        workLabel = "Загрузка нейросети…"
+        operation = Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await neuralModels.install { [weak self] value in
+                    Task { @MainActor in
+                        guard let self, id == self.operationID else { return }
+                        self.progress = value
+                        self.workLabel = "Загрузка · \(Int(value * 100))%"
+                    }
+                }
+                try Task.checkCancellation()
+                guard id == operationID else { return }
+                modelReady = true
+                isWorking = false
+            } catch { finish(error, id: id) }
+        }
+    }
 
     func select(_ item: PhotosPickerItem) {
         beginImport {
@@ -63,16 +103,36 @@ final class StudioModel {
 
     func process() {
         guard let source, !isWorking else { return }
+        if mode == .neural && !modelReady { downloadModel(); return }
         let id = operationID
         let selectedStrength = strength
         let selectedFormat = format
+        let selectedMode = mode
         isWorking = true
+        progress = 0
+        workLabel = selectedMode == .neural ? "Подготовка нейросети…" : "Очистка метаданных…"
         saveMessage = nil
         clearResult()
         operation = Task { [weak self] in
             guard let self else { return }
             do {
-                let output = try await processor.process(source, strength: selectedStrength, format: selectedFormat)
+                let output: ProcessedPhoto
+                if selectedMode == .neural {
+                    guard let url = try await neuralModels.installedURL() else {
+                        modelReady = false
+                        throw NeuralError.modelUnavailable
+                    }
+                    output = try await processor.processNeural(source, strength: selectedStrength, format: selectedFormat,
+                                                               modelURL: url) { [weak self] value, label in
+                        Task { @MainActor in
+                            guard let self, id == self.operationID else { return }
+                            self.progress = value
+                            self.workLabel = label
+                        }
+                    }
+                } else {
+                    output = try await processor.stripMetadata(source, format: selectedFormat)
+                }
                 try Task.checkCancellation()
                 guard id == operationID else { return }
                 result = output

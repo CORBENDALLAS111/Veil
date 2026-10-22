@@ -15,7 +15,7 @@ final class StudioFlowTests: XCTestCase {
 
     func testProcessingComparisonAndReset() {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-fixture", "-ui-light"]
+        app.launchArguments = ["-ui-fixture", "-ui-light", "-ui-metadata"]
         app.launch()
         let process = app.buttons["processButton"]
         XCTAssertTrue(process.waitForExistence(timeout: 15))
@@ -43,7 +43,7 @@ final class StudioFlowTests: XCTestCase {
 
     func testDarkGlassEditor() {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-fixture", "-ui-dark"]
+        app.launchArguments = ["-ui-fixture", "-ui-dark", "-ui-metadata"]
         app.launch()
         XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 15))
         capture("06-dark-editor")

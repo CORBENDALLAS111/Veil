@@ -66,6 +66,7 @@ struct StudioView: View {
             if let item { model.select(item) }
         }
         .onChange(of: model.strength) { _, _ in model.clearResult() }
+        .onChange(of: model.mode) { _, _ in model.clearResult() }
         .onChange(of: model.format) { _, _ in model.clearResult() }
         .fileImporter(isPresented: $showsFiles, allowedContentTypes: [.image]) { result in
             switch result {
@@ -84,6 +85,7 @@ struct StudioView: View {
             Text(model.errorMessage ?? "")
         }
         .task {
+            await model.refreshModel()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-ui-fixture") { model.loadFixture() }
             #endif
@@ -110,7 +112,7 @@ struct StudioView: View {
         VStack(spacing: 16) {
             HStack {
                 if let source = model.source {
-                    Text(verbatim: "\(source.width) × \(source.height)")
+                    Text(verbatim: model.result.map { "\($0.width) × \($0.height)" } ?? "\(source.width) × \(source.height)")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         .accessibilityIdentifier("photoDimensions")
                 }
@@ -147,12 +149,25 @@ struct StudioView: View {
                     .accessibilityLabel("Открыть SynthID Detector")
                 }
             } else {
-                Picker("Сила обработки", selection: $model.strength) {
-                    ForEach(ProcessingStrength.allCases) { strength in Text(strength.title).tag(strength) }
+                Picker("Обработка", selection: $model.mode) {
+                    ForEach(ProcessingMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
                 .pickerStyle(.segmented)
                 .disabled(model.isWorking)
-                .accessibilityHint(model.strength.detail)
+                .accessibilityIdentifier("processingMode")
+                if model.mode == .neural {
+                    Picker("Сила обработки", selection: $model.strength) {
+                        ForEach(ProcessingStrength.allCases) { strength in Text(strength.title).tag(strength) }
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(model.isWorking)
+                    .accessibilityHint(model.strength.detail)
+                    Text(model.modelReady ? "На устройстве · до 1536 px · детали могут измениться" : "Модель 1,14 ГБ · загрузка один раз · фото остаётся на устройстве")
+                        .font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    Text("Удаляет метаданные. SynthID в пикселях может сохраниться.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 if model.source?.hasAlpha == true && model.format == .jpeg {
                     Text("Прозрачность заменится белым фоном").font(.caption).foregroundStyle(.secondary)
                 }
@@ -167,7 +182,10 @@ struct StudioView: View {
                     if model.isWorking {
                         HStack(spacing: 10) {
                             ProgressView()
-                            Text(model.isImporting ? "Открываем…" : "Обработка…").font(.subheadline)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(model.isImporting ? "Открываем…" : model.workLabel).font(.caption)
+                                if !model.isImporting { ProgressView(value: model.progress).frame(maxWidth: 220) }
+                            }
                             Spacer()
                             Button(action: model.cancel) { Image(systemName: "xmark").frame(width: 28, height: 28) }
                                 .modifier(VeilActionStyle())
@@ -207,7 +225,8 @@ struct StudioView: View {
                         .disabled(model.isSaving)
                     } else if model.source != nil {
                         Button(action: model.process) {
-                            Label("Обработать", systemImage: "waveform.path")
+                            Label(model.mode == .neural && !model.modelReady ? "Загрузить нейросеть · 1,14 ГБ" : "Обработать",
+                                  systemImage: model.mode == .neural ? "sparkles" : "document.badge.minus")
                                 .font(.headline).foregroundStyle(VeilStyle.onAccent)
                                 .frame(maxWidth: .infinity, minHeight: 28)
                         }
@@ -265,15 +284,20 @@ private struct AboutView: View {
         NavigationStack {
             Form {
                 Section("SynthID") {
-                    Text("Экспериментальная обработка шума и частотных паттернов. Удаление SynthID не подтверждено.")
+                    Text("Нейросеть заново восстанавливает пиксели, чтобы ослабить скрытые паттерны. Удаление SynthID не гарантировано и не проверяется автоматически.")
                         .accessibilityIdentifier("synthidExplanation")
                     Link("Открыть детектор", destination: URL(string: "https://synthid.com/")!)
                 }
                 Section("Фото") {
-                    Text("Обработка на устройстве. Оригинал сохраняется. До 20 МП и 50 МБ.")
+                    Text("Фото обрабатываются на устройстве. Модель Apple загружается один раз — 1,14 ГБ. Нужно от 6 ГБ оперативной памяти. Оригинал сохраняется.")
+                    Text("Нейросеть обрабатывает длинную сторону до 1536 пикселей. Текст, лица и мелкие детали могут измениться. Метаданные очищаются в обоих режимах.")
                 }
                 Section("Экспорт") {
                     Text("PNG с прозрачностью или JPEG с белым фоном. Без копирования исходных метаданных. SDR sRGB.")
+                }
+                Section("Модель и лицензии") {
+                    Link("Apple Stable Diffusion · MIT", destination: URL(string: "https://github.com/apple-aiml-research/ml-stable-diffusion")!)
+                    Link("SD 2.1 · условия OpenRAIL++", destination: URL(string: "https://huggingface.co/apple/coreml-stable-diffusion-2-1-base-palettized")!)
                 }
                 Section { Text("Veil \(version)").foregroundStyle(.secondary) }
             }

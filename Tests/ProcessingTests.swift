@@ -62,6 +62,20 @@ final class ProcessingTests: XCTestCase {
         } catch { XCTAssertTrue(error is ProcessingError) }
     }
 
+    func testMetadataOnlyExportDropsProvenanceWithoutRunningTheNoiseFilter() async throws {
+        let processor = PhotoProcessor()
+        let input = makePhoto(metadata: true)
+        let photo = try await processor.load(input)
+        let result = try await processor.stripMetadata(photo, format: .png)
+        XCTAssertEqual(result.width, photo.width)
+        XCTAssertEqual(result.height, photo.height)
+        XCTAssertFalse(String(decoding: result.data, as: UTF8.self).contains("PRIVATE-CAMERA"))
+        let container = try XCTUnwrap(CGImageSourceCreateWithData(result.data as CFData, nil))
+        let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(container, 0, nil) as? [String: Any])
+        XCTAssertNil(properties[kCGImagePropertyGPSDictionary as String])
+        XCTAssertNil(properties[kCGImagePropertyIPTCDictionary as String])
+    }
+
     func testOrientsImageAndDropsSourceMetadata() async throws {
         let processor = PhotoProcessor()
         let photo = try await processor.load(makePhoto(orientation: 6, metadata: true))

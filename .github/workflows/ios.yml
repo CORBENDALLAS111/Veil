@@ -9,6 +9,31 @@ concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  neural:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+      - uses: actions/cache@v4
+        with:
+          path: build/neural-model
+          key: veil-sd21-dca5f2fda9c5-v1
+      - name: Run real Core ML image regeneration on a synthetic image
+        run: |
+          set -o pipefail
+          mkdir -p build
+          swift run -c release VeilNeuralSmoke "$PWD/build/neural-model" 2>&1 | tee build/neural.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Veil-neural-smoke
+          path: |
+            build/neural.log
+            build/neural-model/smoke/
+          retention-days: 14
   build:
     runs-on: macos-15
     timeout-minutes: 35
