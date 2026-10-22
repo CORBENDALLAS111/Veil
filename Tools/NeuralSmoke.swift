@@ -4,6 +4,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import CoreML
 import StableDiffusion
+import Darwin
 
 private struct MeanRandom: RandomSource {
     mutating func nextNormal(mean: Double, stdev: Double) -> Double { mean }
@@ -35,6 +36,11 @@ private struct MeanRandom: RandomSource {
         let planar = try input.planarRGBShapedArray(minValue: -1, maxValue: 1)
         var diagnostics: [String: Any] = ["planar_shape": planar.shape,
             "planar_first": Array(planar.scalars.prefix(5)), "planar_min": planar.scalars.min()!, "planar_max": planar.scalars.max()!]
+        var planarError: Double = 0
+        for i in 0..<(512 * 512) {
+            for c in 0..<3 { planarError += abs(Double(planar.scalars[c * 512 * 512 + i]) - (Double(pixels[i * 4 + c]) / 127.5 - 1)) }
+        }
+        diagnostics["planar_mae"] = planarError / Double(512 * 512 * 3)
         print("PLANAR", planar.shape, planar.scalars.min()!, planar.scalars.max()!, Array(planar.scalars.prefix(5)))
         for (name, units) in [("cpu", MLComputeUnits.cpuOnly), ("ane", MLComputeUnits.cpuAndNeuralEngine)] {
             let configuration = MLModelConfiguration()
@@ -56,9 +62,17 @@ private struct MeanRandom: RandomSource {
             CGImageDestinationAddImage(destination, image, nil)
             guard CGImageDestinationFinalize(destination) else { throw NeuralError.invalidOutput }
             if name == "cpu" {
+                let encoderModel = try MLModel(contentsOf: modelURL.appendingPathComponent("VAEEncoder.mlmodelc"), configuration: configuration)
+                let rawEncoder = try await encoderModel.prediction(from: MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(planar)]))
+                let encoderArray = rawEncoder.featureValue(for: "latent")!.multiArrayValue!
+                let encoderValues = (0..<encoderArray.count).map { encoderArray[$0].floatValue }
+                diagnostics["raw_encoder"] = ["shape": encoderArray.shape.map(\.intValue), "nonfinite": encoderValues.filter { !$0.isFinite }.count,
+                    "first": Array(encoderValues.prefix(10)).map { $0.isFinite ? Double($0) : -999999 },
+                    "min": Double(encoderValues.filter(\.isFinite).min() ?? -999999),
+                    "max": Double(encoderValues.filter(\.isFinite).max() ?? -999999)]
                 let model = try MLModel(contentsOf: modelURL.appendingPathComponent("VAEDecoder.mlmodelc"), configuration: configuration)
                 let scaled = MLShapedArray<Float>(scalars: latent.scalars.map { $0 / 0.18215 }, shape: latent.shape)
-                let prediction = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(scaled)]))
+                let prediction = try await model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(scaled)]))
                 let raw = prediction.featureValue(for: "image")!.multiArrayValue!
                 let all = (0..<raw.count).map { raw[$0].floatValue }
                 diagnostics["raw_decoder"] = ["shape": raw.shape.map(\.intValue), "nonfinite": all.filter { !$0.isFinite }.count,
@@ -102,6 +116,7 @@ private struct MeanRandom: RandomSource {
                                      "synthid_checked": false]
         try JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys]).write(to: out.appendingPathComponent("metrics.json"))
         print(String(data: try JSONSerialization.data(withJSONObject: metrics), encoding: .utf8)!)
+        fflush(nil)
         guard output.width == 512, output.height == 512, mse.isFinite, mae > 0.1, mae < 12 else {
             throw NeuralError.invalidOutput
         }
