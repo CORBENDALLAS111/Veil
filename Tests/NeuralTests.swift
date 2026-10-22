@@ -3,6 +3,16 @@ import XCTest
 @testable import Veil
 
 final class NeuralTests: XCTestCase {
+    func testCoreImageBridgeDoesNotFlipOrTransposePixels() throws {
+        let bytes: [UInt8] = [255, 0, 0, 255, 0, 255, 0, 255,
+                              0, 0, 255, 255, 20, 40, 60, 255,
+                              70, 90, 110, 255, 130, 150, 170, 255]
+        let image = try NeuralRaster.image(bytes, width: 2, height: 3)
+        let result = NeuralRaster.pixels(image)
+        XCTAssertEqual(result.count, bytes.count)
+        XCTAssertTrue(zip(bytes, result).allSatisfy { abs(Int($0) - Int($1)) <= 1 })
+    }
+
     func testOverlappingTilesReconstructAnAsymmetricOpaqueRasterWithoutSeams() throws {
         for (width, height) in [(1, 1), (511, 513), (720, 1280)] {
             let plan = TilePlan(width: width, height: height)
