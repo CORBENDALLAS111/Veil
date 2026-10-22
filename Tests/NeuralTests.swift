@@ -31,10 +31,11 @@ final class NeuralTests: XCTestCase {
         let black = [UInt8](repeating: 0, count: 512 * 512 * 4)
         for origin in plan.origins { accumulator.append(black, x: origin.x, y: origin.y) }
         let output = try accumulator.finish()
+        var expected = [UInt8](repeating: 0, count: source.count)
         for i in stride(from: 0, to: output.count, by: 4) {
-            XCTAssertEqual(Array(output[i..<(i + 3)]), [0, 0, 0])
-            XCTAssertEqual(output[i + 3], source[i + 3])
+            expected[i + 3] = source[i + 3]
         }
+        XCTAssertEqual(output, expected)
     }
 
     func testIncompleteTileCoverageFailsInsteadOfReturningAnOriginalRegion() {
