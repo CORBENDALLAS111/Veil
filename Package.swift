@@ -12,7 +12,7 @@ let package = Package(
                           path: ".", exclude: ["Tests", "UITests", "docs", "scripts", "Sources/Assets.xcassets", "Sources/Processing",
                                                "Sources/StudioModel.swift", "Sources/StudioView.swift", "Sources/VeilApp.swift",
                                                "Sources/Design.swift", "Sources/ComparisonView.swift", "Sources/PrivacyInfo.xcprivacy",
-                                               "README.md", "project.yml", "Sources/Licenses"],
+                                               "README.md", "project.yml", "Sources/Licenses", "build"],
                           sources: ["Sources/Neural/NeuralModelStore.swift", "Sources/Neural/NeuralRegenerator.swift", "Tools/NeuralSmoke.swift"],
                           resources: [.copy("Sources/Neural/NeuralManifest.json")])
     ]

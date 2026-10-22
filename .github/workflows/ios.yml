@@ -3,6 +3,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      neural_only:
+        description: Run only the real model diagnostics
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -35,6 +40,7 @@ jobs:
             build/neural-model/smoke/
           retention-days: 14
   build:
+    if: ${{ !inputs.neural_only }}
     runs-on: macos-15
     timeout-minutes: 35
     steps:
@@ -66,6 +72,7 @@ jobs:
           path: build/device.log
           retention-days: 14
   test:
+    if: ${{ !inputs.neural_only }}
     runs-on: macos-15
     timeout-minutes: 25
     steps:
