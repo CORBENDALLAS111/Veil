@@ -21,6 +21,19 @@ jobs:
         run: |
           command -v xcodegen || brew install xcodegen
           xcodegen generate
+      - name: Build arm64 iPhone application
+        run: |
+          set -o pipefail
+          xcodebuild build -project Veil.xcodeproj -scheme Veil -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO 2>&1 | tee build/device.log
+          python3 scripts/package_ipa.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Veil-unsigned-IPA
+          path: build/artifacts/
+          if-no-files-found: error
+          retention-days: 30
       - name: Choose and boot iPhone simulator
         id: simulator
         run: python3 scripts/ci_simulator.py
@@ -39,19 +52,6 @@ jobs:
           if [ -d build/Tests.xcresult ]; then
             xcrun xcresulttool export attachments --path build/Tests.xcresult --output-path build/screenshots
           fi
-      - name: Build arm64 iPhone application
-        run: |
-          set -o pipefail
-          xcodebuild build -project Veil.xcodeproj -scheme Veil -configuration Release \
-            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO 2>&1 | tee build/device.log
-          python3 scripts/package_ipa.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Veil-unsigned-IPA
-          path: build/artifacts/
-          if-no-files-found: error
-          retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:

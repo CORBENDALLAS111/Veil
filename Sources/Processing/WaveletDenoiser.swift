@@ -4,11 +4,14 @@ import Foundation
 /// detector, or a validated watermark-removal algorithm.
 enum WaveletDenoiser {
     /// In-place, two-level orthonormal Haar shrinkage on straight-alpha RGBA8.
-    /// Odd dimensions are carried through unchanged by each transform stage.
+    /// Replicated-edge padding to multiples of four keeps constant color stable
+    /// at odd-sized borders across both transform levels.
     static func reduce(
-        pixels: inout [UInt8], width: Int, height: Int, threshold: Float
+        pixels: inout [UInt8], width originalWidth: Int, height originalHeight: Int, threshold: Float
     ) throws {
-        precondition(width > 0 && height > 0 && pixels.count == width * height * 4)
+        precondition(originalWidth > 0 && originalHeight > 0 && pixels.count == originalWidth * originalHeight * 4)
+        let width = (originalWidth + 3) / 4 * 4
+        let height = (originalHeight + 3) / 4 * 4
         let factor = Float(1 / sqrt(2.0))
         var plane = [Float](repeating: 0, count: width * height)
         var scratch = [Float](repeating: 0, count: max(width, height))
@@ -22,8 +25,11 @@ enum WaveletDenoiser {
         }
         for channel in 0..<3 {
             try Task.checkCancellation()
-            for i in 0..<(width * height) {
-                plane[i] = Float(pixels[i * 4 + channel])
+            for y in 0..<height {
+                for x in 0..<width {
+                    let source = (min(y, originalHeight - 1) * originalWidth + min(x, originalWidth - 1)) * 4 + channel
+                    plane[y * width + x] = Float(pixels[source])
+                }
             }
             for (levelWidth, levelHeight) in levels {
                 for y in 0..<levelHeight {
@@ -93,8 +99,10 @@ enum WaveletDenoiser {
                     for x in 0..<levelWidth { plane[start + x] = scratch[x] }
                 }
             }
-            for i in 0..<(width * height) {
-                pixels[i * 4 + channel] = UInt8(max(0, min(255, plane[i].rounded())))
+            for y in 0..<originalHeight {
+                for x in 0..<originalWidth {
+                    pixels[(y * originalWidth + x) * 4 + channel] = UInt8(max(0, min(255, plane[y * width + x].rounded())))
+                }
             }
         }
     }

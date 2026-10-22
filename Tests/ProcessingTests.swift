@@ -47,6 +47,13 @@ final class ProcessingTests: XCTestCase {
         XCTAssertEqual(pixels, original)
     }
 
+    func testOddSizedConstantImageDoesNotDevelopBorderArtifacts() throws {
+        var pixels = Array(repeating: [UInt8(77), 128, 201, 123], count: 7 * 9).flatMap { $0 }
+        let original = pixels
+        try WaveletDenoiser.reduce(pixels: &pixels, width: 7, height: 9, threshold: 5)
+        XCTAssertEqual(pixels, original)
+    }
+
     func testRejectsCorruptInput() async {
         let processor = PhotoProcessor()
         do {
@@ -98,6 +105,34 @@ final class ProcessingTests: XCTestCase {
         task.cancel()
         do { _ = try await task.value; XCTFail("Cancelled task must not yield an export") }
         catch { XCTAssertTrue(error is CancellationError) }
+    }
+
+    func testPNGPreservesTransparencyAndJPEGCompositesOnWhite() async throws {
+        let pixels = Array(repeating: [UInt8(0), 255, 0, 128], count: 16 * 16).flatMap { $0 }
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        let image = CGImage(width: 16, height: 16, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 64,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        let input = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(input, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let processor = PhotoProcessor()
+        let photo = try await processor.load(input as Data)
+        XCTAssertTrue(photo.hasAlpha)
+        let png = try await processor.process(photo, strength: .balanced, format: .png)
+        let pngSource = try XCTUnwrap(CGImageSourceCreateWithData(png.data as CFData, nil))
+        let pngPixels = try rgba(XCTUnwrap(CGImageSourceCreateImageAtIndex(pngSource, 0, nil)))
+        XCTAssertEqual(Double(pngPixels[3]), 128, accuracy: 1)
+        XCTAssertEqual(Double(pngPixels[1]), 128, accuracy: 2) // premultiplied readback
+        let jpeg = try await processor.process(photo, strength: .balanced, format: .jpeg)
+        let jpegSource = try XCTUnwrap(CGImageSourceCreateWithData(jpeg.data as CFData, nil))
+        let jpegPixels = try rgba(XCTUnwrap(CGImageSourceCreateImageAtIndex(jpegSource, 0, nil)))
+        XCTAssertEqual(Double(jpegPixels[0]), 127, accuracy: 4)
+        XCTAssertEqual(Double(jpegPixels[1]), 255, accuracy: 4)
+        XCTAssertEqual(Double(jpegPixels[2]), 127, accuracy: 4)
+        XCTAssertEqual(jpegPixels[3], 255)
     }
 
     private func makePhoto(orientation: Int = 1, metadata: Bool = false) -> Data {

@@ -139,7 +139,7 @@ struct StudioView: View {
                     .font(.system(.largeTitle, design: .serif, weight: .medium))
                     .tracking(-1)
                 if let source = model.source {
-                    Text("\(source.width) × \(source.height)  ·  \(source.data.count.formatted(.byteCount(style: .file)))")
+                    Text("\(source.width) × \(source.height)  ·  \(Int64(source.data.count).formatted(.byteCount(style: .file)))")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(VeilStyle.muted)
                         .accessibilityIdentifier("photoDimensions")
@@ -157,7 +157,7 @@ struct StudioView: View {
                         Text(output.format.title).font(.system(.caption, design: .monospaced))
                     }
                     HStack {
-                        Text("\(output.data.count.formatted(.byteCount(style: .file))) · \(output.elapsed.formatted(.number.precision(.fractionLength(1)))) с")
+                        Text("\(Int64(output.data.count).formatted(.byteCount(style: .file))) · \(output.elapsed.formatted(.number.precision(.fractionLength(1)))) с")
                         Spacer()
                         Text(output.strength.title)
                     }

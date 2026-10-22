@@ -15,7 +15,7 @@ JPEG, PNG, HEIC and WebP are accepted, subject to system decoder availability. M
 1. Validate the encoded container's size, dimensions, format and frame count before decoding.
 2. Decode and apply orientation with Core Image, rendering in sRGB.
 3. Apply edge-preserving `CINoiseReduction`.
-4. Unpremultiply color, apply a two-level separable orthonormal Haar transform to each RGB channel and firm-shrink small detail coefficients. Invert the transform, preserving alpha. This is a **generic frequency/noise filter**, not an implementation of Google's watermark mechanism.
+4. Render straight color, apply a two-level separable orthonormal Haar transform to each RGB channel and firm-shrink small detail coefficients. Invert the transform, preserving alpha. This is a **generic frequency/noise filter**, not an implementation of Google's watermark mechanism.
 5. Build a fresh PNG or 97%-quality JPEG container without copying source EXIF/GPS/XMP/IPTC/C2PA data. This metadata cleanup is separate from the pixel processing.
 
 Work runs in a dedicated actor with cooperative cancellation. Preview images are limited to 1400 pixels; exports use the full accepted resolution. No real or simulated detection scores are displayed. Strong processing can alter textures; changing settings invalidates the previous result.

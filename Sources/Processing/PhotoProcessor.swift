@@ -67,7 +67,7 @@ enum ProcessingError: LocalizedError {
 
 /// Owns all decoded pixels off the main actor. Only Sendable data crosses the boundary.
 actor PhotoProcessor {
-    private let context = CIContext(options: [.cacheIntermediates: false])
+    private let context = CIContext(options: [.cacheIntermediates: false, .outputPremultiplied: false])
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
     func load(_ data: Data) throws -> ImportedPhoto {
@@ -98,13 +98,8 @@ actor PhotoProcessor {
             context.render(filtered, toBitmap: storage.baseAddress!, rowBytes: width * 4,
                            bounds: rect, format: .RGBA8, colorSpace: colorSpace)
         }
-        // CI bitmap output is premultiplied; process straight color, keeping alpha.
-        for i in stride(from: 0, to: pixels.count, by: 4) {
-            let alpha = Int(pixels[i + 3])
-            if alpha > 0 && alpha < 255 {
-                for c in 0..<3 { pixels[i + c] = UInt8(min(255, Int(pixels[i + c]) * 255 / alpha)) }
-            }
-        }
+        // The context produces straight color so low-alpha pixels do not lose
+        // precision through an intermediate 8-bit unpremultiplication step.
         try WaveletDenoiser.reduce(pixels: &pixels, width: width, height: height, threshold: strength.threshold)
         try Task.checkCancellation()
         if format == .jpeg {
