@@ -1,0 +1,32 @@
+name: Watermark effectiveness test preparation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+      - name: Download and hash-check pinned public fixtures
+        run: python3 scripts/benchmark_fixtures.py
+      - name: Compile the exact native app processor
+        run: |
+          swiftc -O -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Tools/WatermarkBench.swift -o build/watermark-benchmark/bench
+      - name: Produce before and after files with quality metrics
+        run: build/watermark-benchmark/bench build/watermark-benchmark/inputs build/watermark-benchmark/outputs
+      - name: Write comparison report and unverified detector ledger
+        run: python3 scripts/benchmark_report.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Veil-watermark-benchmark
+          path: |
+            build/watermark-benchmark/outputs/
+            build/watermark-benchmark/inputs/sources.json
+          if-no-files-found: error
+          retention-days: 30
