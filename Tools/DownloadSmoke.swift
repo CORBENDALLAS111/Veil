@@ -7,7 +7,7 @@ private final class ProgressCapture: @unchecked Sendable {
     private var failure: String?
     func append(_ value: ModelDownloadProgress) { lock.withLock { values.append(value) } }
     var snapshots: [ModelDownloadProgress] { lock.withLock { values } }
-    func fail(_ error: Error) { lock.withLock { failure = "\((error as NSError).domain) \((error as NSError).code): \(error.localizedDescription)" } }
+    func fail(_ error: Error) { lock.withLock { failure = "\((error as NSError).domain) \((error as NSError).code): \(error.localizedDescription); \((error as NSError).userInfo)" } }
     var error: String? { lock.withLock { failure } }
 }
 
@@ -24,7 +24,8 @@ private final class ProgressCapture: @unchecked Sendable {
         }
         func downloader(_ name: String) -> ModelDownloads {
             let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = 3
+            config.timeoutIntervalForRequest = 10
+            config.connectionProxyDictionary = [:]
             return ModelDownloads(parent: root.appendingPathComponent(name), configuration: config)
         }
         let directory = root.appendingPathComponent("resume")

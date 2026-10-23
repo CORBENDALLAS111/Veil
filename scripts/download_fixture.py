@@ -26,7 +26,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(DATA[offset:offset + 32768])
                 self.wfile.flush()
                 if name == '/slow':
-                    if offset == 0:
+                    if offset == 7 * 32768:
                         RELEASE.wait(20)
                     time.sleep(0.01)
         except (BrokenPipeError, ConnectionResetError):
