@@ -44,7 +44,10 @@ import XCTest
         let width = 64, height = 48
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height { for x in 0..<width {
-            let value: UInt8 = x < 32 ? ((x + y) % 2 == 0 ? 118 : 138) : 255
+            // The ramp leaves one level of headroom at neighboring peaks.
+            // A flat checker consists entirely of local extrema and must not
+            // be sharpened by this range-clamped enhancer.
+            let value: UInt8 = x < 32 ? UInt8(100 + x + ((x + y) % 2 == 0 ? 0 : 20)) : 255
             for c in 0..<3 { bytes[(y * width + x) * 4 + c] = value }
         } }
         bytes[3] = 128
