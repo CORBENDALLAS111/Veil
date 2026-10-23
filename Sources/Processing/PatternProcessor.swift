@@ -77,12 +77,38 @@ enum PatternProcessor {
         // Bounding boxes refer to top-left raster coordinates, padded to cover
         // antialiasing and context just outside the recognized glyphs.
         let rects = protectedRects.map { $0.insetBy(dx: -4, dy: -4).integral }
-        var protected = [UInt8](repeating: 0, count: width * height)
+        // Distance from protected content. Freeze a surrounding margin and
+        // feather beyond it so the band filter cannot draw halos around text.
+        var protectionDistance = [UInt8](repeating: 96, count: width * height)
         for rect in rects {
             let x0 = max(0, min(width, Int(rect.minX))), x1 = max(0, min(width, Int(rect.maxX)))
             let y0 = max(0, min(height, Int(rect.minY))), y1 = max(0, min(height, Int(rect.maxY)))
             if x0 < x1 && y0 < y1 {
-                for y in y0..<y1 { for x in x0..<x1 { protected[y * width + x] = 1 } }
+                for y in y0..<y1 { for x in x0..<x1 { protectionDistance[y * width + x] = 0 } }
+            }
+        }
+        for y in 0..<height {
+            try Task.checkCancellation()
+            for x in 0..<width {
+                let i = y * width + x
+                var lowest = luma[i], highest = luma[i]
+                for yy in max(0, y - 1)...min(height - 1, y + 1) {
+                    for xx in max(0, x - 1)...min(width - 1, x + 1) {
+                        lowest = min(lowest, luma[yy * width + xx])
+                        highest = max(highest, luma[yy * width + xx])
+                    }
+                }
+                if highest - lowest >= 18 || pixels[i * 4 + 3] < 255 { protectionDistance[i] = 0 }
+                if x > 0 { protectionDistance[i] = min(protectionDistance[i], protectionDistance[i - 1] + 1) }
+                if y > 0 { protectionDistance[i] = min(protectionDistance[i], protectionDistance[i - width] + 1) }
+            }
+        }
+        for y in stride(from: height - 1, through: 0, by: -1) {
+            try Task.checkCancellation()
+            for x in stride(from: width - 1, through: 0, by: -1) {
+                let i = y * width + x
+                if x + 1 < width { protectionDistance[i] = min(protectionDistance[i], protectionDistance[i + 1] + 1) }
+                if y + 1 < height { protectionDistance[i] = min(protectionDistance[i], protectionDistance[i + width] + 1) }
             }
         }
         let window: [Float] = (0..<side).map { 0.5 - 0.5 * cos(2 * .pi * Float($0) / Float(side)) }
@@ -147,7 +173,7 @@ enum PatternProcessor {
                     for x in 0..<width {
                         let i = y * width + x, p = i * 4, ring = (y % side) * width + x
                         defer { delta[ring] = 0; weights[ring] = 0 }
-                        guard protected[i] == 0, pixels[p + 3] == 255, weights[ring] > 0.0001 else { continue }
+                        guard protectionDistance[i] > 32, pixels[p + 3] == 255, weights[ring] > 0.0001 else { continue }
                         var lowest = luma[i], highest = luma[i]
                         for yy in max(0, y - 1)...min(height - 1, y + 1) {
                             for xx in max(0, x - 1)...min(width - 1, x + 1) {
@@ -155,7 +181,7 @@ enum PatternProcessor {
                                 highest = max(highest, luma[yy * width + xx])
                             }
                         }
-                        let edgeGain = 1 - smooth((highest - lowest - 5) / 13)
+                        let edgeGain = (1 - smooth((highest - lowest - 5) / 13)) * smooth((Float(protectionDistance[i]) - 32) / 64)
                         let amount = max(-strength.pixelLimit, min(strength.pixelLimit, delta[ring] / weights[ring])) * edgeGain
                         let rounded = Int(amount.rounded())
                         for c in 0..<3 { pixels[p + c] = UInt8(clamping: Int(pixels[p + c]) + rounded) }

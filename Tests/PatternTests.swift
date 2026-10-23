@@ -49,7 +49,7 @@ import XCTest
                     XCTAssertEqual(pixels[p + 3], original[p + 3])
                     for c in 0..<3 {
                         XCTAssertLessThanOrEqual(abs(Int(pixels[p + c]) - Int(original[p + c])), Int(strength.pixelLimit))
-                        if rect.contains(CGPoint(x: x, y: y)) || x == 219 || x == 220 {
+                        if rect.insetBy(dx: -16, dy: -16).contains(CGPoint(x: x, y: y)) || (190...245).contains(x) {
                             XCTAssertEqual(pixels[p + c], original[p + c])
                         }
                     }
