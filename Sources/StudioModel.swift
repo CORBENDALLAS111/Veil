@@ -52,7 +52,9 @@ final class StudioModel {
         progress = 0
         isDownloadingModel = true
         workLabel = "Подготовка файлов…"
+        let preparation = ModelDownloadPreparation()
         operation = Task { [weak self] in
+            defer { preparation.end() }
             guard let self else { return }
             do {
                 _ = try await neuralModels.install { [weak self] value in
@@ -60,6 +62,7 @@ final class StudioModel {
                         guard let self, id == self.operationID else { return }
                         self.progress = value.fraction
                         self.workLabel = value.label
+                        if value.phase != .preparing { preparation.end() }
                     }
                 }
                 try Task.checkCancellation()

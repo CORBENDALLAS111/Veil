@@ -1,5 +1,19 @@
 import UIKit
 
+@MainActor final class ModelDownloadPreparation {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+    init() {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: "Prepare model transfers") { [weak self] in
+            self?.end()
+        }
+    }
+    func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
+}
+
 @MainActor enum BackgroundDownloadEvents {
     static var completion: (() -> Void)?
     static func finish() {
