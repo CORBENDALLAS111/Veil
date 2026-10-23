@@ -30,7 +30,7 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
           swiftc -swift-version 6 -parse-as-library Sources/Neural/NeuralModelStore.swift Sources/Neural/ModelDownloads.swift Tools/DownloadSmoke.swift -o build/DownloadSmoke
-          build/DownloadSmoke "$PWD/build/download-check" | tee build/download-check.log
+          build/DownloadSmoke "$PWD/build/download-check" "$PWD/Sources/Neural/NeuralManifest.json" | tee build/download-check.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

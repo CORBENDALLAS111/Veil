@@ -63,6 +63,19 @@ private final class ProgressCapture: @unchecked Sendable {
                 fatalError("Incomplete model was installed")
             }
         }
+        let source = try JSONDecoder().decode(NeuralManifest.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))
+        let entry = source.files.first { $0.path == "TextEncoder.mlmodelc/model.mil" }!
+        let live = NeuralManifest(id: "live-pinned-source", totalBytes: entry.bytes, files: [entry])
+        let liveRoot = root.appendingPathComponent("live")
+        try FileManager.default.createDirectory(at: liveRoot.appendingPathComponent(live.id + ".partial"), withIntermediateDirectories: true)
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 60
+        try await ModelDownloads(parent: liveRoot, configuration: config).download(live) { _ in }
+        guard ModelFileStorage.valid(liveRoot.appendingPathComponent(live.id + "/" + entry.path), file: entry) else {
+            fatalError("Pinned production source failed validation")
+        }
         print("DOWNLOAD CHECK PASSED: incremental bytes, cancellation, retained complete files, restart, HTTP error, SHA-256 rejection")
+        print("LIVE SOURCE CHECK PASSED: pinned Hugging Face file downloaded by native URLSession and verified by SHA-256")
     }
 }
