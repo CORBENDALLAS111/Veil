@@ -8,6 +8,7 @@ struct StudioView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showsFiles = false
     @State private var showsInfo = false
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -64,6 +65,9 @@ struct StudioView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.result != nil)
         .onChange(of: selectedPhoto) { _, item in
             if let item { model.select(item) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await model.refreshModel() } }
         }
         .onChange(of: model.strength) { _, _ in model.clearResult() }
         .onChange(of: model.mode) { _, _ in model.clearResult() }
@@ -185,6 +189,9 @@ struct StudioView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(model.isImporting ? "Открываем…" : model.workLabel).font(.caption)
                                 if !model.isImporting { ProgressView(value: model.progress).frame(maxWidth: 220) }
+                                if model.isDownloadingModel {
+                                    Text("Можно свернуть приложение").font(.caption2).foregroundStyle(.secondary)
+                                }
                             }
                             Spacer()
                             Button(action: model.cancel) { Image(systemName: "xmark").frame(width: 28, height: 28) }

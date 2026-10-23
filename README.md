@@ -6,6 +6,12 @@ Version 0.3 adds a real neural engine: Apple SD 2.1 palettized denoiser and a ma
 
 **SynthID removal is experimental and has not been independently measured.** Neural regeneration may weaken an embedded watermark but can change faces, lettering and textures. The app never presents completion as a negative SynthID detection. No generic AI-classifier score is used as proof.
 
+## Download recovery (0.3.1)
+
+The model uses a stable native iOS background URLSession. Every missing file is queued before suspension; cellular, expensive and constrained networks are permitted for this explicit download. The screen shows preparation, connection/waiting state and transferred megabytes, including amounts below 1%. Returning to the app reattaches to running transfers. Completed files are retained and rechecked by SHA-256 before reuse. A serial delegate moves and validates each file before acknowledging background completion. The download continues when the app is suspended or the screen is locked; iOS cancels background transfers if the user force-quits the app. LiveContainer and other hosts can impose additional background restrictions. Slow scheduling and server reachability remain controlled by iOS and the network.
+
+CI additionally runs the actual native download delegate against a controlled HTTP server: incremental progress, cancellation, retention/reuse of a completed file, restart, HTTP failure and corrupt-payload rejection. Physical-iPhone background behavior still requires device validation.
+
 ## Use
 
 Choose a photo в†’ Neural в†’ download the model once в†’ Process в†’ compare в†’ save or share a new file. The original is not overwritten.

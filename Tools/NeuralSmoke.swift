@@ -46,7 +46,7 @@ private struct MeanRandom: RandomSource {
         let root = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         let store = NeuralModelStore(parent: root)
         let modelURL = try await store.install { value in
-            if Int(value * 100) % 10 == 0 { print("Model download \(Int(value * 100))%") }
+            if Int(value.fraction * 100) % 10 == 0 { print(value.label) }
         }
         var pixels = [UInt8](repeating: 255, count: 512 * 512 * 4)
         for y in 0..<512 {

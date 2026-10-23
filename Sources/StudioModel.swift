@@ -21,6 +21,7 @@ final class StudioModel {
     var isWorking = false
     var isSaving = false
     var isImporting = false
+    var isDownloadingModel = false
     var errorMessage: String?
     var saveMessage: String?
     var comparison: Double = 0.5
@@ -34,6 +35,7 @@ final class StudioModel {
 
     func refreshModel() async {
         modelReady = (try? await neuralModels.installedURL()) != nil
+        if !modelReady, !isWorking, await neuralModels.hasActiveDownloads() { downloadModel() }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-ui-metadata") { mode = .metadata }
         #endif
@@ -48,20 +50,22 @@ final class StudioModel {
         let id = operationID
         isWorking = true
         progress = 0
-        workLabel = "Загрузка нейросети…"
+        isDownloadingModel = true
+        workLabel = "Подготовка файлов…"
         operation = Task { [weak self] in
             guard let self else { return }
             do {
                 _ = try await neuralModels.install { [weak self] value in
                     Task { @MainActor in
                         guard let self, id == self.operationID else { return }
-                        self.progress = value
-                        self.workLabel = "Загрузка · \(Int(value * 100))%"
+                        self.progress = value.fraction
+                        self.workLabel = value.label
                     }
                 }
                 try Task.checkCancellation()
                 guard id == operationID else { return }
                 modelReady = true
+                isDownloadingModel = false
                 isWorking = false
             } catch { finish(error, id: id) }
         }
@@ -152,6 +156,7 @@ final class StudioModel {
         operationID = UUID()
         isWorking = false
         isImporting = false
+        isDownloadingModel = false
     }
 
     func reset() {
@@ -208,7 +213,14 @@ final class StudioModel {
         guard id == operationID else { return }
         isWorking = false
         isImporting = false
-        if !(error is CancellationError) { errorMessage = error.localizedDescription }
+        isDownloadingModel = false
+        if !(error is CancellationError) && (error as NSError).code != NSURLErrorCancelled {
+            if let network = error as? URLError {
+                errorMessage = network.code == .timedOut
+                    ? "Сервер модели не отвечает. Попробуйте другую сеть и повторите загрузку. Готовые файлы сохранены."
+                    : "Не удалось связаться с сервером модели. Проверьте доступ к huggingface.co и повторите загрузку. Готовые файлы сохранены."
+            } else { errorMessage = error.localizedDescription }
+        }
     }
 
     #if DEBUG

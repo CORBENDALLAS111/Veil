@@ -14,6 +14,28 @@ concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  download:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+      - name: Check real native download progress and recovery
+        run: |
+          mkdir -p build
+          python3 scripts/download_fixture.py > build/download-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          swiftc -swift-version 6 -parse-as-library Sources/Neural/NeuralModelStore.swift Sources/Neural/ModelDownloads.swift Tools/DownloadSmoke.swift -o build/DownloadSmoke
+          build/DownloadSmoke "$PWD/build/download-check" | tee build/download-check.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Veil-download-check
+          path: build/download*.log
+          retention-days: 14
   neural:
     runs-on: macos-15
     timeout-minutes: 40

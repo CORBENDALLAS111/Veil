@@ -10,8 +10,8 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: '1,2'
-    MARKETING_VERSION: '0.3.0'
-    CURRENT_PROJECT_VERSION: '4'
+    MARKETING_VERSION: '0.3.1'
+    CURRENT_PROJECT_VERSION: '5'
 packages:
   StableDiffusion:
     url: https://github.com/apple-aiml-research/ml-stable-diffusion.git
@@ -34,8 +34,8 @@ targets:
       path: build/Info.plist
       properties:
         CFBundleDisplayName: Veil
-        CFBundleShortVersionString: '0.3.0'
-        CFBundleVersion: '4'
+        CFBundleShortVersionString: '0.3.1'
+        CFBundleVersion: '5'
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         NSPhotoLibraryAddUsageDescription: 'Veil сохраняет обработанное изображение как новое фото. Оригинал остаётся в медиатеке.'
