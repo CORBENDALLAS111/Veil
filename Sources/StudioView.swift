@@ -16,7 +16,7 @@ struct StudioView: View {
                 ScrollView {
                     Group {
                         if let preview = model.originalPreview {
-                            editor(preview, photoHeight: max(220, min(580, geometry.size.height - (model.result == nil ? 365 : 270))))
+                            editor(preview, photoHeight: max(200, min(580, geometry.size.height - (model.result == nil ? 415 : 270))))
                         } else {
                             emptyState.frame(minHeight: max(240, geometry.size.height - 130))
                         }
@@ -68,6 +68,8 @@ struct StudioView: View {
         .onChange(of: model.strength) { _, _ in model.clearResult() }
         .onChange(of: model.mode) { _, _ in model.clearResult() }
         .onChange(of: model.format) { _, _ in model.clearResult() }
+        .onChange(of: model.clarity) { _, _ in model.clearResult() }
+        .onChange(of: model.resolution) { _, _ in model.clearResult() }
         .fileImporter(isPresented: $showsFiles, allowedContentTypes: [.image]) { result in
             switch result {
             case .success(let url): model.selectFile(url)
@@ -121,6 +123,19 @@ struct StudioView: View {
                     Text("\(Int64(result.data.count).formatted(.byteCount(style: .file))) · \(result.format.title)")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 } else {
+                    if model.mode == .pattern {
+                        Menu {
+                            Picker("Размер", selection: $model.resolution) {
+                                ForEach(OutputResolution.allCases) { size in Text(size.title).tag(size) }
+                            }
+                        } label: {
+                            HStack(spacing: 4) { Text(model.resolution.title); Image(systemName: "chevron.down") }
+                                .font(.caption.weight(.medium)).frame(minHeight: 44)
+                        }
+                        .disabled(model.isWorking)
+                        .accessibilityLabel("Размер: \(model.resolution.title)")
+                        .accessibilityIdentifier("resolutionMenu")
+                    }
                     Menu {
                         Picker("Формат", selection: $model.format) {
                             ForEach(ExportFormat.allCases) { format in Text(format.title).tag(format) }
@@ -162,7 +177,11 @@ struct StudioView: View {
                     .pickerStyle(.segmented)
                     .disabled(model.isWorking)
                     .accessibilityHint(model.strength.detail)
-                    Text("Без перерисовки · исходный размер")
+                    Toggle("Мягкая чёткость", isOn: $model.clarity)
+                        .font(.subheadline)
+                        .disabled(model.isWorking)
+                        .accessibilityIdentifier("clarityToggle")
+                    Text(model.resolution == .original ? "Без перерисовки · исходный размер" : "Без перерисовки · 4K по длинной стороне")
                         .font(.caption2).foregroundStyle(.secondary)
                 } else {
                     Text("Удаляет метаданные. SynthID в пикселях может сохраниться.")
@@ -283,13 +302,14 @@ private struct AboutView: View {
         NavigationStack {
             Form {
                 Section("SynthID") {
-                    Text("Обработка частотного паттерна без генеративной перерисовки. Эффективность против SynthID не подтверждена. В защищённых областях скрытый паттерн может сохраниться.")
+                    Text("Обработка скрытого паттерна без генеративной перерисовки, с защитой от потери деталей. Эффективность против SynthID не подтверждена. В защищённых областях скрытый паттерн может сохраниться.")
                         .accessibilityIdentifier("synthidExplanation")
                     Link("Открыть детектор", destination: URL(string: "https://synthid.com/")!)
                 }
                 Section("Фото") {
                     Text("Работает на устройстве без интернета и загрузок. Исходный размер и геометрия сохраняются. Оригинал остаётся в медиатеке.")
                     Text("Распознанный текст и контрастные границы защищены от фильтра. Изменения ограничены по силе, однако слабоконтрастные текстуры могут измениться. Метаданные очищаются в обоих режимах.")
+                    Text("Мягкая чёткость даёт едва заметное усиление деталей. Размер 4K — 3840 пикселей по длинной стороне с сохранением пропорций; это аккуратная интерполяция, она не восстанавливает утраченную информацию. При исходном размере масштабирования нет.")
                 }
                 Section("Экспорт") {
                     Text("PNG сохраняет обработанные пиксели без потерь. JPEG добавляет сжатие и заменяет прозрачность белым фоном. Без исходных метаданных. SDR sRGB.")

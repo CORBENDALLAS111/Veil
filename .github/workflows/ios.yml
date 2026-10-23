@@ -36,7 +36,7 @@ jobs:
       - name: Check full resolution filtering and real OCR on synthetic text
         run: |
           mkdir -p build/pixel-check
-          swiftc -O -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Tools/PixelSmoke.swift -o build/pixel-check/smoke
+          swiftc -O -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Tools/PixelSmoke.swift -o build/pixel-check/smoke
           build/pixel-check/smoke build/pixel-check
       - uses: actions/upload-artifact@v4
         if: always()

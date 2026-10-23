@@ -16,6 +16,8 @@ final class StudioModel {
     var progress: Double = 0
     var workLabel = "Обработка…"
     var format: ExportFormat = .png
+    var clarity = false
+    var resolution: OutputResolution = .original
     var isWorking = false
     var isSaving = false
     var isImporting = false
@@ -76,6 +78,8 @@ final class StudioModel {
         let selectedStrength = strength
         let selectedFormat = format
         let selectedMode = mode
+        let selectedClarity = clarity
+        let selectedResolution = resolution
         isWorking = true
         progress = 0
         workLabel = selectedMode == .pattern ? "Защита текста…" : "Очистка метаданных…"
@@ -86,7 +90,8 @@ final class StudioModel {
             do {
                 let output: ProcessedPhoto
                 if selectedMode == .pattern {
-                    output = try await processor.process(source, strength: selectedStrength, format: selectedFormat) { [weak self] value, label in
+                    output = try await processor.process(source, strength: selectedStrength, format: selectedFormat,
+                                                         clarity: selectedClarity, resolution: selectedResolution) { [weak self] value, label in
                         Task { @MainActor in
                             guard let self, id == self.operationID else { return }
                             self.progress = value

@@ -13,21 +13,25 @@ import XCTest
         }
     }
 
-    func testSyntheticBandIsAttenuatedWithoutTileSeams() throws {
+    func testPhaseProcessingChangesPatternWithoutBlurringOrTileSeams() throws {
         let width = 513, height = 259
         var pixels = sine(width: width, height: height)
         let original = pixels
         try PatternProcessor.filter(&pixels, width: width, height: height, strength: .strong)
         var before: Double = 0, after: Double = 0
+        var changed = 0
         for y in 32..<(height - 32) {
             for x in 32..<(width - 32) {
                 let p = (y * width + x) * 4
                 before += pow(Double(original[p]) - 128, 2)
                 after += pow(Double(pixels[p]) - 128, 2)
-                if x > 32 { XCTAssertLessThanOrEqual(abs(Int(pixels[p]) - Int(pixels[p - 4])), 3) }
+                if pixels[p] != original[p] { changed += 1 }
+                if x > 32 { XCTAssertLessThanOrEqual(abs(Int(pixels[p]) - Int(pixels[p - 4])), 4) }
             }
         }
-        XCTAssertLessThan(after, before * 0.3, "Frequency filter must actually attenuate the test band")
+        XCTAssertGreaterThan(after, before * 0.9, "Processing must retain texture energy instead of blurring it")
+        XCTAssertLessThan(after, before * 1.3, "Processing must not amplify the pattern excessively")
+        XCTAssertGreaterThan(changed, 1000, "Pattern processing must perform an actual change")
     }
 
     func testProtectedTextRectAndEdgesStayExactAndChangesAreBounded() throws {

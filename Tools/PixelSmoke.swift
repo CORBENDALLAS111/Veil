@@ -71,10 +71,19 @@ import UniformTypeIdentifiers
             precondition(PixelRaster.pixels(readback) == PixelRaster.pixels(image), "PNG must round trip losslessly")
         }
         let after = try PatternProcessor.recognizeText(output)
+        let enhanced = try PatternProcessor.process(input, strength: .balanced, clarity: true, resolution: .fourK) { _, _ in }
+        precondition(enhanced.width == 3840 && enhanced.height == 1495, "4K must preserve aspect ratio")
+        let text4K = try PatternProcessor.recognizeText(enhanced)
+        for region in before { precondition(text4K.contains { $0.text == region.text }, "4K changed recognized lettering") }
+        let image4K = directory.appendingPathComponent("output-4K.png")
+        let destination4K = CGImageDestinationCreateWithURL(image4K as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination4K, enhanced, nil)
+        precondition(CGImageDestinationFinalize(destination4K))
         let metrics: [String: Any] = ["width": width, "height": height, "maxRGBDelta": maxDelta,
             "changedChannels": changed, "protectedChannelsExact": exactProtected,
             "seconds": elapsed, "textBefore": before.map(\.text), "textAfter": after.map(\.text),
-            "synthIDVerified": false]
+            "synthIDVerified": false, "fourKWidth": enhanced.width, "fourKHeight": enhanced.height,
+            "text4K": text4K.map(\.text)]
         try JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             .write(to: directory.appendingPathComponent("metrics.json"))
         print("PIXEL CHECK PASSED: \(width)×\(height), max RGB delta \(maxDelta), text \(before.map(\.text)), \(elapsed)s")

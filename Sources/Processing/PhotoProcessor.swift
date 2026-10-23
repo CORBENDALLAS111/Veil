@@ -13,8 +13,19 @@ enum ProcessingStrength: String, CaseIterable, Identifiable, Sendable {
     var pixelLimit: Float {
         switch self { case .gentle: 3; case .balanced: 6; case .strong: 10 }
     }
-    var attenuation: Float {
-        switch self { case .gentle: 0.45; case .balanced: 0.65; case .strong: 0.85 }
+    var phaseLimit: Float {
+        switch self { case .gentle: 0.18; case .balanced: 0.38; case .strong: 0.65 }
+    }
+}
+
+enum OutputResolution: String, CaseIterable, Identifiable, Sendable {
+    case original, fourK
+    var id: Self { self }
+    var title: String { self == .original ? "Исходный" : "4K" }
+    func dimensions(width: Int, height: Int) -> (width: Int, height: Int) {
+        guard self == .fourK else { return (width, height) }
+        let factor = 3840.0 / Double(max(width, height))
+        return (max(1, Int((Double(width) * factor).rounded())), max(1, Int((Double(height) * factor).rounded())))
     }
 }
 
@@ -104,6 +115,7 @@ actor PhotoProcessor {
     }
 
     func process(_ photo: ImportedPhoto, strength: ProcessingStrength, format: ExportFormat,
+                 clarity: Bool = false, resolution: OutputResolution = .original,
                  progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }) throws -> ProcessedPhoto {
         try Task.checkCancellation()
         let start = Date()
@@ -111,7 +123,7 @@ actor PhotoProcessor {
         let input = try orientedImage(photo.data)
         guard let image = context.createCGImage(input, from: input.extent.integral, format: .RGBA8, colorSpace: colorSpace)
         else { throw ProcessingError.invalidImage }
-        let result = try PatternProcessor.process(image, strength: strength, progress: progress)
+        let result = try PatternProcessor.process(image, strength: strength, clarity: clarity, resolution: resolution, progress: progress)
         try Task.checkCancellation()
         progress(0.98, "Сохранение…")
         let encoded = try exportImage(result, format: format)
