@@ -24,6 +24,7 @@ jobs:
           xcode-version: '26.2'
       - name: Check real native download progress and recovery
         run: |
+          set -o pipefail
           mkdir -p build
           python3 scripts/download_fixture.py > build/download-server.log 2>&1 &
           SERVER_PID=$!

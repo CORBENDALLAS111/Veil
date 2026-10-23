@@ -1,12 +1,20 @@
 """Controlled HTTP transfers for the native downloader integration check."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import time
+import threading
 
 DATA = bytes(range(256)) * 8192
+RELEASE = threading.Event()
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         name = self.path.split('?', 1)[0]
+        if name == '/release':
+            RELEASE.set()
+            self.send_response(200)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if name == '/missing':
             self.send_error(404)
             return
@@ -18,7 +26,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(DATA[offset:offset + 32768])
                 self.wfile.flush()
                 if name == '/slow':
-                    time.sleep(0.04)
+                    if offset == 0:
+                        RELEASE.wait(20)
+                    time.sleep(0.01)
         except (BrokenPipeError, ConnectionResetError):
             pass
 

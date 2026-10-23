@@ -31,13 +31,19 @@ private final class ProgressCapture: @unchecked Sendable {
         let downloads = downloader("resume")
         let first = ProgressCapture()
         let task = Task { try await downloads.download(plan) { first.append($0) } }
-        try await Task.sleep(for: .milliseconds(800))
+        let deadline = Date().addingTimeInterval(15)
+        while !(ModelFileStorage.valid(directory.appendingPathComponent("fixture.partial/fast.bin"), file: plan.files[0]) &&
+                first.snapshots.contains(where: { $0.received > Int64(data.count) && $0.received < plan.totalBytes })) {
+            guard Date() < deadline else { fatalError("Fixture did not reach the cancellation precondition") }
+            try await Task.sleep(for: .milliseconds(25))
+        }
         task.cancel()
         do { try await task.value; fatalError("Cancellation was ignored") }
         catch is CancellationError { }
         guard ModelFileStorage.valid(directory.appendingPathComponent("fixture.partial/fast.bin"), file: plan.files[0]) else {
             fatalError("Completed transfer was lost on cancellation")
         }
+        _ = try await URLSession.shared.data(from: URL(string: "http://127.0.0.1:18765/release")!)
         let resumed = ProgressCapture()
         try await downloads.download(plan) { resumed.append($0) }
         guard FileManager.default.fileExists(atPath: directory.appendingPathComponent("fixture/complete").path),
