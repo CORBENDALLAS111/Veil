@@ -46,7 +46,8 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
           swiftc -swift-version 6 -parse-as-library Sources/Neural/NeuralModelStore.swift Sources/Neural/ModelDownloads.swift Tools/DownloadSmoke.swift -o build/DownloadSmoke
-          curl --fail --noproxy '*' http://127.0.0.1:18765/fast -o build/fixture-probe.bin
+          VEIL_DOWNLOAD_LIVE_ONLY=1 build/DownloadSmoke "$PWD/build/live-download-check" "$PWD/Sources/Neural/NeuralManifest.json"
+          curl --fail --max-time 5 --noproxy '*' http://127.0.0.1:18765/fast -o build/fixture-probe.bin
           build/DownloadSmoke "$PWD/build/download-check" "$PWD/Sources/Neural/NeuralManifest.json" | tee build/download-check.log
       - uses: actions/upload-artifact@v4
         if: always()
