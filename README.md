@@ -6,17 +6,17 @@ Version 0.3 adds a real neural engine: Apple SD 2.1 palettized denoiser and a ma
 
 **SynthID removal is experimental and has not been independently measured.** Neural regeneration may weaken an embedded watermark but can change faces, lettering and textures. The app never presents completion as a negative SynthID detection. No generic AI-classifier score is used as proof.
 
-## Download recovery (0.3.1)
+## Offline delivery (0.4)
 
-The model uses a stable native iOS background URLSession. Every missing file is queued before suspension; cellular, expensive and constrained networks are permitted for this explicit download. The screen shows preparation, connection/waiting state and transferred megabytes, including amounts below 1%. Returning to the app reattaches to running transfers. Completed files are retained and rechecked by SHA-256 before reuse. A serial delegate moves and validates each file before acknowledging background completion. The download continues when the app is suspended or the screen is locked; iOS cancels background transfers if the user force-quits the app. LiveContainer and other hosts can impose additional background restrictions. Slow scheduling and server reachability remain controlled by iOS and the network.
+All model components ship inside the IPA: matching FP32 VAE, palettized Text Encoder and UNet, merges and vocabulary. Runtime download size is zero. The store verifies bundled bytes and SHA-256 once per process and returns the read-only model directory inside the application bundle. It does not duplicate 1.3 GB of models into Application Support or create a download session. No network connection is required after IPA installation. The first processing button says Process, not Download. The legacy native background downloader remains available in source for non-bundled manifests.
 
-CI additionally runs the actual native download delegate against a controlled HTTP server: incremental progress, cancellation, retention/reuse of a completed file, restart, HTTP failure and corrupt-payload rejection. Physical-iPhone background behavior still requires device validation.
+`prepare_vae.py` prepares the pinned FP32 codec; `bundle_models.py` verifies and embeds the remaining pinned files, reusing validated CI model files where available. Packaging rejects manifests with any remote model file. CI runs the actual engine against the bundled model directory, checks that the offline store creates no download storage/session, and tests the native interface.
 
 ## Use
 
 Choose a photo в†’ Neural в†’ download the model once в†’ Process в†’ compare в†’ save or share a new file. The original is not overwritten.
 
-The app includes a matching full-precision VAE (about 334 MB of model data). The remaining denoiser, text encoder and tokenizer download once (about 0.97 GB) from Apple's Hugging Face repository. Every file uses a pinned revision, expected byte length and SHA-256. Completed files survive a cancelled download; incomplete installations are never loaded. Models stay in Application Support and are excluded from iCloud backup. After installation, photo processing works offline. A device with at least 8 GB RAM is required for neural download; actual app memory limits vary.
+The app includes the full model (about 1.3 GB uncompressed), including a matching full-precision VAE. All files use pinned revisions, expected byte lengths and SHA-256. A device with at least 8 GB RAM is required for neural processing; actual app memory limits vary.
 
 Three neural strengths: 0.12, 0.20 and 0.30 on a 50-step DPM schedule. An empty prompt and guidance 1 reduce prompt-driven changes. Processing uses overlapping 512Г—512 tiles, with weighted blending. All RGB pixels come from regenerated tiles; original detail is not pasted back. Alpha is retained. The working image is reduced proportionally to a maximum long side of **1536 pixels** and exported at that size; it is not upscaled to pretend to retain the original resolution. Cancel is checked between steps/tiles.
 

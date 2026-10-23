@@ -19,7 +19,8 @@ final class StudioFlowTests: XCTestCase {
         app.launch()
         let process = app.buttons["processButton"]
         XCTAssertTrue(process.waitForExistence(timeout: 15))
-        XCTAssertTrue(process.label.contains("Загрузить нейросеть"))
+        XCTAssertEqual(process.label, "Обработать")
+        XCTAssertTrue(app.staticTexts["Модель в приложении · без интернета · до 1536 px"].exists)
         capture("03-neural-ready")
         app.segmentedControls["processingMode"].buttons["Метаданные"].tap()
         capture("03-photo-ready")

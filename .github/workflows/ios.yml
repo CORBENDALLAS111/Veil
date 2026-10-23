@@ -16,7 +16,7 @@ concurrency:
 jobs:
   release:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release ')
-    needs: [download, neural, build, test]
+    needs: [neural, build, test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,31 +30,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 scripts/publish_release.py
-  download:
-    runs-on: macos-15
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '26.2'
-      - name: Check real native download progress and recovery
-        run: |
-          set -o pipefail
-          mkdir -p build
-          python3 -u scripts/download_fixture.py > build/download-server.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID"' EXIT
-          swiftc -swift-version 6 -parse-as-library Sources/Neural/NeuralModelStore.swift Sources/Neural/ModelDownloads.swift Tools/DownloadSmoke.swift -o build/DownloadSmoke
-          VEIL_DOWNLOAD_LIVE_ONLY=1 build/DownloadSmoke "$PWD/build/live-download-check" "$PWD/Sources/Neural/NeuralManifest.json"
-          curl --fail --max-time 60 --noproxy '*' http://127.0.0.1:18765/fast -o build/fixture-probe.bin
-          build/DownloadSmoke "$PWD/build/download-check" "$PWD/Sources/Neural/NeuralManifest.json" | tee build/download-check.log
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Veil-download-check
-          path: build/download*.log
-          retention-days: 14
   neural:
     runs-on: macos-15
     timeout-minutes: 40
@@ -82,6 +57,7 @@ jobs:
         run: |
           mkdir -p build
           python3 scripts/prepare_vae.py
+          python3 scripts/bundle_models.py
       - uses: actions/upload-artifact@v4
         with:
           name: Veil-FP32-codec

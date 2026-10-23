@@ -2,7 +2,16 @@ import Foundation
 import XCTest
 @testable import Veil
 
-final class NeuralTests: XCTestCase {
+@MainActor final class NeuralTests: XCTestCase {
+    func testOfflineModelUsesBundleWithoutCreatingDownloadStorage() async throws {
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent("unused-model-download-" + UUID().uuidString)
+        let store = NeuralModelStore(parent: storage)
+        let url = try await store.installedURL()
+        XCTAssertEqual(url, NeuralManifest.resourceBundle.resourceURL?.appendingPathComponent("BundledVAE", isDirectory: true))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storage.path))
+        let active = await store.hasActiveDownloads()
+        XCTAssertFalse(active)
+    }
     func testNeuralQualityRejectsLostStructureAndAcceptsSmallChanges() throws {
         var source = [UInt8](repeating: 255, count: 512 * 512 * 4)
         for i in 0..<(512 * 512) {
@@ -69,6 +78,8 @@ final class NeuralTests: XCTestCase {
 
     func testModelManifestIsCompleteAndPinned() throws {
         let manifest = try NeuralManifest.bundled()
+        XCTAssertTrue(manifest.isFullyBundled)
+        XCTAssertEqual(manifest.totalBytes, 0)
         XCTAssertEqual(manifest.files.filter { $0.url != nil }.reduce(0) { $0 + $1.bytes }, manifest.totalBytes)
         for component in ["TextEncoder", "VAEEncoder", "Unet", "VAEDecoder"] {
             XCTAssertTrue(manifest.files.contains { $0.path == "\(component).mlmodelc/weights/weight.bin" })

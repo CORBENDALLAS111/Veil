@@ -27,25 +27,23 @@ ipa = root / 'build/artifacts/Veil-unsigned.ipa'
 digest = hashlib.sha256(ipa.read_bytes()).hexdigest()
 assert (root / 'build/artifacts/SHA256SUMS.txt').read_text().split()[0] == digest
 assert not any(r['tag_name'] == tag for r in api(f'/repos/{repo}/releases')), 'A release with this version already exists; bump the version rather than replacing it'
-body = f'''Фоновая загрузка модели и исправленная индикация прогресса.
+body = f'''Вся нейросеть встроена в IPA. После установки приложение работает без интернета и без отдельной загрузки модели.
 
-- Системная фоновая сессия iOS: все файлы ставятся в очередь заранее; разрешены Wi‑Fi и мобильная сеть.
-- Вместо неподвижного «0%» — состояние соединения и точное количество загруженных мегабайт.
-- При возвращении в приложение восстанавливается прогресс. Готовые файлы сохраняются и проверяются по SHA‑256.
-- Нативная нейрообработка Core ML, очистка метаданных и Liquid Glass.
+- Все компоненты SD 2.1, включая FP32 VAE, Text Encoder, UNet и токенизатор, включены в приложение.
+- Модели читаются прямо из приложения: дополнительная копия на 1,3 ГБ не создаётся.
+- Нейрообработка Core ML, очистка метаданных, сравнение и экспорт PNG/JPEG. Liquid Glass на iOS 26.
 
-Можно свернуть приложение или заблокировать экран. Принудительное закрытие смахиванием останавливает фоновые передачи iOS. LiveContainer и другие контейнеры могут ограничивать фоновую работу.
-
-Нужны iOS 17+ и 8 ГБ RAM для нейрорежима; разовая загрузка оставшейся модели около 0,97 ГБ. Фото остаются на устройстве. Нейрообработка может менять мелкие детали и ограничена длинной стороной 1536 px.
+Нужны iOS 17+ и 8 ГБ RAM для нейрорежима. Фото остаются на устройстве. Нейрообработка может менять мелкие детали и ограничена длинной стороной 1536 px.
 
 **IPA без подписи: нужна внешняя подпись или совместимый контейнер. Удаление SynthID официальным детектором не подтверждено.**
 
-Проверки: сборка arm64, модульные и UI-тесты, реальная обработка Core ML, нативная загрузка с промежуточным прогрессом, отменой/повторным запуском, сохранением готовых файлов и отклонением HTTP/хеш-ошибок; загрузка настоящего закреплённого файла Hugging Face. [GitHub Actions](https://github.com/{repo}/actions/runs/{run_id}). Фоновое поведение на физическом iPhone требует проверки на устройстве.
+Проверки: наличие и SHA-256 всех моделей внутри IPA, ноль внешних файлов в итоговом манифесте, реальная обработка Core ML из встроенных ресурсов, модульные и UI-тесты. [GitHub Actions](https://github.com/{repo}/actions/runs/{run_id}). Производительность на физическом iPhone пока не измерена.
 
-SHA‑256 IPA: `{digest}`
+SHA-256 IPA: `{digest}`
 '''
+
 release = api(f'/repos/{repo}/releases', {'tag_name': tag, 'target_commitish': sha,
-    'name': 'Veil ' + version + ' — фоновая загрузка', 'prerelease': True, 'draft': True, 'body': body})
+    'name': 'Veil ' + version + ' — вся модель внутри', 'prerelease': True, 'draft': True, 'body': body})
 for path in [ipa, root / 'build/artifacts/SHA256SUMS.txt', root / 'Sources/Licenses/SD2.1-OpenRAIL.txt']:
     data = path.read_bytes()
     asset = api(release['upload_url'].split('{', 1)[0] + '?name=' + path.name, data)

@@ -88,11 +88,12 @@ if __name__ == '__main__':
         convert()
     manifest_path = ROOT / 'Sources/Neural/NeuralManifest.json'
     manifest = json.loads(manifest_path.read_text())
-    manifest['files'] = [x for x in manifest['files'] if not x['path'].startswith(('VAEEncoder.', 'VAEDecoder.'))]
+    manifest['files'] = [x for x in manifest['files'] if x.get('url') and not x['path'].startswith(('VAEEncoder.', 'VAEDecoder.'))]
     for file in sorted(BUNDLE.rglob('*')):
         if not file.is_file() or file.name in ('version.txt', '.gitkeep'):
             continue
         relative = file.relative_to(BUNDLE).as_posix()
+        manifest['files'] = [x for x in manifest['files'] if x['path'] != relative]
         manifest['files'].append({'path': relative, 'bundledPath': 'BundledVAE/' + relative,
                                   'bytes': file.stat().st_size,
                                   'sha256': hashlib.sha256(file.read_bytes()).hexdigest()})

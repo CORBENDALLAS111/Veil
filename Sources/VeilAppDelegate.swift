@@ -27,7 +27,7 @@ import UIKit
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         // Recreate the same session at launch to recover transfers and progress.
-        _ = ModelDownloads.shared
+        if (try? NeuralManifest.bundled().isFullyBundled) != true { _ = ModelDownloads.shared }
         return true
     }
 

@@ -18,6 +18,7 @@ assert "iPhoneOS" in info["CFBundleSupportedPlatforms"]
 assert (app / "Assets.car").is_file(), "Compiled app icon missing"
 assert (app / "SD2.1-OpenRAIL.txt").read_bytes() == (root / "Sources/Licenses/SD2.1-OpenRAIL.txt").read_bytes(), "Complete model license missing"
 manifest = json.loads((app / "NeuralManifest.json").read_text())
+assert manifest['totalBytes'] == 0 and all(not row.get('url') and row.get('bundledPath') for row in manifest['files']), "All model files must be embedded in the IPA"
 assert "fp32" in manifest.get("vaeConversion", ""), "Release requires the tested full precision codec"
 bundled = [row for row in manifest["files"] if row.get("bundledPath")]
 assert any(row["path"].startswith("VAEEncoder.mlmodelc/") for row in bundled)

@@ -12,6 +12,9 @@ struct NeuralManifest: Decodable, Sendable {
     let id: String
     let totalBytes: Int64
     let files: [File]
+    var isFullyBundled: Bool {
+        totalBytes == 0 && !files.isEmpty && files.allSatisfy { $0.url == nil && $0.bundledPath == "BundledVAE/" + $0.path }
+    }
 
     static func bundled() throws -> Self {
         let bundle = resourceBundle
@@ -43,7 +46,7 @@ enum NeuralError: LocalizedError {
     case modelUnavailable, corruptDownload, downloadFailed, busy, insufficientMemory, invalidOutput
     var errorDescription: String? {
         switch self {
-        case .modelUnavailable: "Не найдена модель нейросети. Загрузите её заново."
+        case .modelUnavailable: "Не найдены файлы нейросети. Переустановите приложение."
         case .corruptDownload: "Проверка загрузки не прошла. Попробуйте ещё раз."
         case .downloadFailed: "Не удалось загрузить модель. Проверьте соединение и свободное место."
         case .busy: "Загрузка ещё завершается. Попробуйте через несколько секунд."
@@ -56,15 +59,28 @@ enum NeuralError: LocalizedError {
 actor NeuralModelStore {
     private let parent: URL
     private var installing = false
-    private let downloads: ModelDownloads
+    private let downloads: ModelDownloads?
+    private var verifiedBundle: URL?
 
     init(parent: URL? = nil) {
         self.parent = parent ?? ModelDownloads.parent
-        self.downloads = parent.map { ModelDownloads(parent: $0) } ?? .shared
+        self.downloads = (try? NeuralManifest.bundled().isFullyBundled) == true
+            ? nil : (parent.map { ModelDownloads(parent: $0) } ?? .shared)
     }
 
     func installedURL() throws -> URL? {
         let manifest = try NeuralManifest.bundled()
+        if manifest.isFullyBundled {
+            if let verifiedBundle { return verifiedBundle }
+            guard let resources = NeuralManifest.resourceBundle.resourceURL else { throw NeuralError.modelUnavailable }
+            let models = resources.appendingPathComponent("BundledVAE", isDirectory: true)
+            for file in manifest.files {
+                try Task.checkCancellation()
+                guard ModelFileStorage.valid(models.appendingPathComponent(file.path), file: file) else { throw NeuralError.corruptDownload }
+            }
+            verifiedBundle = models
+            return models
+        }
         let url = parent.appendingPathComponent(manifest.id, isDirectory: true)
         guard (try? String(contentsOf: url.appendingPathComponent("complete"), encoding: .utf8)) == manifest.id,
               manifest.files.allSatisfy({ file in
@@ -74,7 +90,11 @@ actor NeuralModelStore {
         return url
     }
 
-    func hasActiveDownloads() async -> Bool { await downloads.hasActiveTasks() }
+    func hasActiveDownloads() async -> Bool {
+        if (try? NeuralManifest.bundled().isFullyBundled) == true { return false }
+        guard let downloads else { return false }
+        return await downloads.hasActiveTasks()
+    }
 
     func install(progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws -> URL {
         if let url = try installedURL() { return url }
@@ -102,6 +122,7 @@ actor NeuralModelStore {
             if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
             try fm.copyItem(at: original, to: destination)
         }
+        guard let downloads else { throw NeuralError.modelUnavailable }
         try await downloads.download(manifest, progress: progress)
         try Task.checkCancellation()
         guard let ready = try installedURL() else { throw NeuralError.modelUnavailable }

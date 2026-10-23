@@ -15,6 +15,7 @@ final class StudioModel {
     var mode: ProcessingMode = .neural
     var modelReady = false
     let modelDownloadLabel = NeuralManifest.downloadLabel
+    let modelBundled = (try? NeuralManifest.bundled().isFullyBundled) == true
     var progress: Double = 0
     var workLabel = "Обработка…"
     var format: ExportFormat = .png
@@ -111,7 +112,11 @@ final class StudioModel {
 
     func process() {
         guard let source, !isWorking else { return }
-        if mode == .neural && !modelReady { downloadModel(); return }
+        if mode == .neural && !modelReady && !modelBundled { downloadModel(); return }
+        if mode == .neural && ProcessInfo.processInfo.physicalMemory < 7_000_000_000 {
+            errorMessage = NeuralError.insufficientMemory.localizedDescription
+            return
+        }
         let id = operationID
         let selectedStrength = strength
         let selectedFormat = format
