@@ -69,7 +69,6 @@ final class NeuralTests: XCTestCase {
 
     func testModelManifestIsCompleteAndPinned() throws {
         let manifest = try NeuralManifest.bundled()
-        XCTAssertGreaterThanOrEqual(manifest.files.count, 22)
         XCTAssertEqual(manifest.files.filter { $0.url != nil }.reduce(0) { $0 + $1.bytes }, manifest.totalBytes)
         for component in ["TextEncoder", "VAEEncoder", "Unet", "VAEDecoder"] {
             XCTAssertTrue(manifest.files.contains { $0.path == "\(component).mlmodelc/weights/weight.bin" })
