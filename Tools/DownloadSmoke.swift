@@ -4,8 +4,11 @@ import CryptoKit
 private final class ProgressCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [ModelDownloadProgress] = []
+    private var failure: String?
     func append(_ value: ModelDownloadProgress) { lock.withLock { values.append(value) } }
     var snapshots: [ModelDownloadProgress] { lock.withLock { values } }
+    func fail(_ error: Error) { lock.withLock { failure = "\((error as NSError).domain) \((error as NSError).code): \(error.localizedDescription)" } }
+    var error: String? { lock.withLock { failure } }
 }
 
 @main struct DownloadSmoke {
@@ -30,11 +33,17 @@ private final class ProgressCapture: @unchecked Sendable {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("fixture.partial"), withIntermediateDirectories: true)
         let downloads = downloader("resume")
         let first = ProgressCapture()
-        let task = Task { try await downloads.download(plan) { first.append($0) } }
+        let task = Task {
+            do { try await downloads.download(plan) { first.append($0) } }
+            catch { first.fail(error); throw error }
+        }
         let deadline = Date().addingTimeInterval(15)
         while !(ModelFileStorage.valid(directory.appendingPathComponent("fixture.partial/fast.bin"), file: plan.files[0]) &&
                 first.snapshots.contains(where: { $0.received > Int64(data.count) && $0.received < plan.totalBytes })) {
-            guard Date() < deadline else { fatalError("Fixture did not reach the cancellation precondition") }
+            if let error = first.error { fatalError("Initial transfer failed: \(error)") }
+            guard Date() < deadline else {
+                fatalError("Fixture did not reach the cancellation precondition; progress: \(first.snapshots.map { ($0.received, $0.label) })")
+            }
             try await Task.sleep(for: .milliseconds(25))
         }
         task.cancel()
