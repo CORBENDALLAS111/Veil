@@ -1,4 +1,4 @@
-"""Publish only after the workflow's native download, neural and iOS checks pass."""
+"""Publish only after the workflow's pixel preservation, OCR and iOS checks pass."""
 import hashlib
 import json
 import os
@@ -27,24 +27,25 @@ ipa = root / 'build/artifacts/Veil-unsigned.ipa'
 digest = hashlib.sha256(ipa.read_bytes()).hexdigest()
 assert (root / 'build/artifacts/SHA256SUMS.txt').read_text().split()[0] == digest
 assert not any(r['tag_name'] == tag for r in api(f'/repos/{repo}/releases')), 'A release with this version already exists; bump the version rather than replacing it'
-body = f'''Вся нейросеть встроена в IPA. После установки приложение работает без интернета и без отдельной загрузки модели.
+body = f'''Обработка без генеративной перерисовки. Модель и загрузка больше не нужны: всё работает офлайн.
 
-- Все компоненты SD 2.1, включая FP32 VAE, Text Encoder, UNet и токенизатор, включены в приложение.
-- Модели читаются прямо из приложения: дополнительная копия на 1,3 ГБ не создаётся.
-- Нейрообработка Core ML, очистка метаданных, сравнение и экспорт PNG/JPEG. Liquid Glass на iOS 26.
+- Исходное разрешение и геометрия; без уменьшения до 1536 px.
+- Мягкий частотный фильтр с ограничением изменения RGB: 3 / 6 / 10 из 255.
+- Распознанный текст сохраняется пиксель в пиксель перед экспортом, контрастные границы защищены. Повторная OCR-проверка отклоняет результат, если распознанный текст изменился.
+- PNG без потерь, JPEG со сжатием, очистка исходных метаданных, сравнение, Liquid Glass на iOS 26.
 
-Нужны iOS 17+ и 8 ГБ RAM для нейрорежима. Фото остаются на устройстве. Нейрообработка может менять мелкие детали и ограничена длинной стороной 1536 px.
+Экспериментальный алгоритм. Удаление SynthID официальным детектором не подтверждено; защищённые области могут сохранить скрытый паттерн. Слабоконтрастные текстуры могут измениться. Обработка SDR sRGB, до 20 Мп. Нужна iOS 17+. Проверено на синтетических изображениях и симуляторе; физический iPhone ещё не измерен.
 
-**IPA без подписи: нужна внешняя подпись или совместимый контейнер. Удаление SynthID официальным детектором не подтверждено.**
+**IPA без подписи: нужна внешняя подпись или совместимый контейнер.**
 
-Проверки: наличие и SHA-256 всех моделей внутри IPA, ноль внешних файлов в итоговом манифесте, реальная обработка Core ML из встроенных ресурсов, модульные и UI-тесты. [GitHub Actions](https://github.com/{repo}/actions/runs/{run_id}). Производительность на физическом iPhone пока не измерена.
+Проверки: ограничение изменений, неизменность текстовых областей, реальные OCR-проверки, частотный тест, PNG, прозрачность, ориентация, отмена, модульные и UI-тесты. [GitHub Actions](https://github.com/{repo}/actions/runs/{run_id}).
 
 SHA-256 IPA: `{digest}`
 '''
 
 release = api(f'/repos/{repo}/releases', {'tag_name': tag, 'target_commitish': sha,
-    'name': 'Veil ' + version + ' — вся модель внутри', 'prerelease': True, 'draft': True, 'body': body})
-for path in [ipa, root / 'build/artifacts/SHA256SUMS.txt', root / 'Sources/Licenses/SD2.1-OpenRAIL.txt']:
+    'name': 'Veil ' + version + ' — без перерисовки', 'prerelease': True, 'draft': True, 'body': body})
+for path in [ipa, root / 'build/artifacts/SHA256SUMS.txt']:
     data = path.read_bytes()
     asset = api(release['upload_url'].split('{', 1)[0] + '?name=' + path.name, data)
     assert asset['state'] == 'uploaded' and asset['size'] == len(data)

@@ -8,7 +8,6 @@ struct StudioView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showsFiles = false
     @State private var showsInfo = false
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -66,9 +65,6 @@ struct StudioView: View {
         .onChange(of: selectedPhoto) { _, item in
             if let item { model.select(item) }
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model.refreshModel() } }
-        }
         .onChange(of: model.strength) { _, _ in model.clearResult() }
         .onChange(of: model.mode) { _, _ in model.clearResult() }
         .onChange(of: model.format) { _, _ in model.clearResult() }
@@ -89,7 +85,7 @@ struct StudioView: View {
             Text(model.errorMessage ?? "")
         }
         .task {
-            await model.refreshModel()
+            model.configure()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-ui-fixture") { model.loadFixture() }
             #endif
@@ -159,14 +155,14 @@ struct StudioView: View {
                 .pickerStyle(.segmented)
                 .disabled(model.isWorking)
                 .accessibilityIdentifier("processingMode")
-                if model.mode == .neural {
+                if model.mode == .pattern {
                     Picker("Сила обработки", selection: $model.strength) {
                         ForEach(ProcessingStrength.allCases) { strength in Text(strength.title).tag(strength) }
                     }
                     .pickerStyle(.segmented)
                     .disabled(model.isWorking)
                     .accessibilityHint(model.strength.detail)
-                    Text(model.modelBundled || model.modelReady ? "Модель в приложении · без интернета · до 1536 px" : "Модель \(model.modelDownloadLabel) · загрузка один раз · фото остаётся на устройстве")
+                    Text("Без перерисовки · исходный размер")
                         .font(.caption2).foregroundStyle(.secondary)
                 } else {
                     Text("Удаляет метаданные. SynthID в пикселях может сохраниться.")
@@ -189,9 +185,6 @@ struct StudioView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(model.isImporting ? "Открываем…" : model.workLabel).font(.caption)
                                 if !model.isImporting { ProgressView(value: model.progress).frame(maxWidth: 220) }
-                                if model.isDownloadingModel {
-                                    Text("Можно свернуть приложение").font(.caption2).foregroundStyle(.secondary)
-                                }
                             }
                             Spacer()
                             Button(action: model.cancel) { Image(systemName: "xmark").frame(width: 28, height: 28) }
@@ -232,8 +225,7 @@ struct StudioView: View {
                         .disabled(model.isSaving)
                     } else if model.source != nil {
                         Button(action: model.process) {
-                            Label(model.mode == .neural && !model.modelReady && !model.modelBundled ? "Загрузить нейросеть · \(model.modelDownloadLabel)" : "Обработать",
-                                  systemImage: model.mode == .neural ? "sparkles" : "document.badge.minus")
+                            Label("Обработать", systemImage: model.mode == .pattern ? "slider.horizontal.3" : "document.badge.minus")
                                 .font(.headline).foregroundStyle(VeilStyle.onAccent)
                                 .frame(maxWidth: .infinity, minHeight: 28)
                         }
@@ -291,21 +283,19 @@ private struct AboutView: View {
         NavigationStack {
             Form {
                 Section("SynthID") {
-                    Text("Нейросеть заново восстанавливает пиксели, чтобы ослабить скрытые паттерны. Удаление SynthID не гарантировано и не проверяется автоматически.")
+                    Text("Обработка частотного паттерна без генеративной перерисовки. Эффективность против SynthID не подтверждена. В защищённых областях скрытый паттерн может сохраниться.")
                         .accessibilityIdentifier("synthidExplanation")
                     Link("Открыть детектор", destination: URL(string: "https://synthid.com/")!)
                 }
                 Section("Фото") {
-                    Text("Вся нейросеть включена в приложение. Фото обрабатываются на устройстве без интернета. Нужно от 8 ГБ оперативной памяти. Оригинал сохраняется.")
-                    Text("Нейросеть обрабатывает длинную сторону до 1536 пикселей. Текст, лица и мелкие детали могут измениться. Метаданные очищаются в обоих режимах.")
+                    Text("Работает на устройстве без интернета и загрузок. Исходный размер и геометрия сохраняются. Оригинал остаётся в медиатеке.")
+                    Text("Распознанный текст и контрастные границы защищены от фильтра. Изменения ограничены по силе, однако слабоконтрастные текстуры могут измениться. Метаданные очищаются в обоих режимах.")
                 }
                 Section("Экспорт") {
-                    Text("PNG с прозрачностью или JPEG с белым фоном. Без копирования исходных метаданных. SDR sRGB.")
+                    Text("PNG сохраняет обработанные пиксели без потерь. JPEG добавляет сжатие и заменяет прозрачность белым фоном. Без исходных метаданных. SDR sRGB.")
                 }
-                Section("Модель и лицензии") {
-                    Link("Apple Stable Diffusion · MIT", destination: URL(string: "https://github.com/apple-aiml-research/ml-stable-diffusion")!)
-                    Link("SD 2.1 · условия OpenRAIL++", destination: URL(string: "https://huggingface.co/apple/coreml-stable-diffusion-2-1-base-palettized")!)
-                    Link("Кодек SD 2.1 · источник весов", destination: URL(string: "https://huggingface.co/sd2-community/stable-diffusion-2-1-base")!)
+                Section("Код") {
+                    Link("GitHub", destination: URL(string: "https://github.com/CORBENDALLAS111/Veil")!)
                 }
                 Section { Text("Veil \(version)").foregroundStyle(.secondary) }
             }

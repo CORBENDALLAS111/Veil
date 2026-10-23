@@ -3,11 +3,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      neural_only:
-        description: Run only the real model diagnostics
-        type: boolean
-        default: false
 permissions:
   contents: read
 concurrency:
@@ -16,7 +11,7 @@ concurrency:
 jobs:
   release:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release ')
-    needs: [neural, build, test]
+    needs: [pixel, build, test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,71 +25,30 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 scripts/publish_release.py
-  neural:
+  pixel:
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26.2'
-      - uses: actions/cache@v4
-        with:
-          path: build/neural-model
-          key: veil-sd21-fp32codec-v1
-      - uses: actions/cache@v4
-        id: vae
-        with:
-          path: Sources/Neural/BundledVAE
-          key: veil-sd21-fp32-ct9-xcode26.2-v1
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install model conversion dependencies
-        if: steps.vae.outputs.cache-hit != 'true'
-        run: python3 -m pip install torch==2.7.1 coremltools==9.0 diffusers==0.35.1 transformers==4.53.3 safetensors==0.6.2 numpy==1.26.4 Pillow==11.3.0
-      - name: Prepare matching full precision image codec
+      - name: Check full resolution filtering and real OCR on synthetic text
         run: |
-          mkdir -p build
-          python3 scripts/prepare_vae.py
-          python3 scripts/bundle_models.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Veil-FP32-codec
-          path: |
-            Sources/Neural/BundledVAE/
-            build/NeuralManifest.json
-          retention-days: 14
-      - name: Run real Core ML image regeneration on a synthetic image
-        timeout-minutes: 20
-        env:
-          VEIL_DIAGNOSTIC_ONLY: ${{ inputs.neural_only && '1' || '0' }}
-        run: |
-          set -o pipefail
-          mkdir -p build
-          python3 -c 'import shutil; shutil.rmtree("build/neural-model/smoke", ignore_errors=True)'
-          swift run -c release VeilNeuralSmoke "$PWD/build/neural-model" 2>&1 | tee build/neural.log
+          mkdir -p build/pixel-check
+          swiftc -O -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Tools/PixelSmoke.swift -o build/pixel-check/smoke
+          build/pixel-check/smoke build/pixel-check
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Veil-neural-smoke
-          path: |
-            build/neural.log
-            build/neural-model/smoke/
+          name: Veil-pixel-check
+          path: build/pixel-check/
           retention-days: 14
   build:
-    if: ${{ !inputs.neural_only }}
-    needs: neural
     runs-on: macos-15
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: Veil-FP32-codec
-          path: .
-      - name: Install generated model manifest
-        run: cp build/NeuralManifest.json Sources/Neural/NeuralManifest.json
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26.2'
@@ -122,18 +76,10 @@ jobs:
           path: build/device.log
           retention-days: 14
   test:
-    if: ${{ !inputs.neural_only }}
-    needs: neural
     runs-on: macos-15
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: Veil-FP32-codec
-          path: .
-      - name: Install generated model manifest
-        run: cp build/NeuralManifest.json Sources/Neural/NeuralManifest.json
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26.2'

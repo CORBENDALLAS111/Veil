@@ -12,67 +12,27 @@ final class StudioModel {
     var originalPreview: UIImage?
     var resultPreview: UIImage?
     var strength: ProcessingStrength = .balanced
-    var mode: ProcessingMode = .neural
-    var modelReady = false
-    let modelDownloadLabel = NeuralManifest.downloadLabel
-    let modelBundled = (try? NeuralManifest.bundled().isFullyBundled) == true
+    var mode: ProcessingMode = .pattern
     var progress: Double = 0
     var workLabel = "Обработка…"
     var format: ExportFormat = .png
     var isWorking = false
     var isSaving = false
     var isImporting = false
-    var isDownloadingModel = false
     var errorMessage: String?
     var saveMessage: String?
     var comparison: Double = 0.5
     var shareURL: URL?
 
     @ObservationIgnored private let processor = PhotoProcessor()
-    @ObservationIgnored private let neuralModels = NeuralModelStore()
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var operationID = UUID()
     @ObservationIgnored private var exportedURLs: [URL] = []
 
-    func refreshModel() async {
-        modelReady = (try? await neuralModels.installedURL()) != nil
-        if !modelReady, !isWorking, await neuralModels.hasActiveDownloads() { downloadModel() }
+    func configure() {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-ui-metadata") { mode = .metadata }
         #endif
-    }
-
-    func downloadModel() {
-        guard !isWorking else { return }
-        guard ProcessInfo.processInfo.physicalMemory >= 7_000_000_000 else {
-            errorMessage = NeuralError.insufficientMemory.localizedDescription
-            return
-        }
-        let id = operationID
-        isWorking = true
-        progress = 0
-        isDownloadingModel = true
-        workLabel = "Подготовка файлов…"
-        let preparation = ModelDownloadPreparation()
-        operation = Task { [weak self] in
-            defer { preparation.end() }
-            guard let self else { return }
-            do {
-                _ = try await neuralModels.install { [weak self] value in
-                    Task { @MainActor in
-                        guard let self, id == self.operationID else { return }
-                        self.progress = value.fraction
-                        self.workLabel = value.label
-                        if value.phase != .preparing { preparation.end() }
-                    }
-                }
-                try Task.checkCancellation()
-                guard id == operationID else { return }
-                modelReady = true
-                isDownloadingModel = false
-                isWorking = false
-            } catch { finish(error, id: id) }
-        }
     }
 
     func select(_ item: PhotosPickerItem) {
@@ -112,31 +72,21 @@ final class StudioModel {
 
     func process() {
         guard let source, !isWorking else { return }
-        if mode == .neural && !modelReady && !modelBundled { downloadModel(); return }
-        if mode == .neural && ProcessInfo.processInfo.physicalMemory < 7_000_000_000 {
-            errorMessage = NeuralError.insufficientMemory.localizedDescription
-            return
-        }
         let id = operationID
         let selectedStrength = strength
         let selectedFormat = format
         let selectedMode = mode
         isWorking = true
         progress = 0
-        workLabel = selectedMode == .neural ? "Подготовка нейросети…" : "Очистка метаданных…"
+        workLabel = selectedMode == .pattern ? "Защита текста…" : "Очистка метаданных…"
         saveMessage = nil
         clearResult()
         operation = Task { [weak self] in
             guard let self else { return }
             do {
                 let output: ProcessedPhoto
-                if selectedMode == .neural {
-                    guard let url = try await neuralModels.installedURL() else {
-                        modelReady = false
-                        throw NeuralError.modelUnavailable
-                    }
-                    output = try await processor.processNeural(source, strength: selectedStrength, format: selectedFormat,
-                                                               modelURL: url) { [weak self] value, label in
+                if selectedMode == .pattern {
+                    output = try await processor.process(source, strength: selectedStrength, format: selectedFormat) { [weak self] value, label in
                         Task { @MainActor in
                             guard let self, id == self.operationID else { return }
                             self.progress = value
@@ -164,7 +114,6 @@ final class StudioModel {
         operationID = UUID()
         isWorking = false
         isImporting = false
-        isDownloadingModel = false
     }
 
     func reset() {
@@ -221,14 +170,7 @@ final class StudioModel {
         guard id == operationID else { return }
         isWorking = false
         isImporting = false
-        isDownloadingModel = false
-        if !(error is CancellationError) && (error as NSError).code != NSURLErrorCancelled {
-            if let network = error as? URLError {
-                errorMessage = network.code == .timedOut
-                    ? "Сервер модели не отвечает. Попробуйте другую сеть и повторите загрузку. Готовые файлы сохранены."
-                    : "Не удалось связаться с сервером модели. Проверьте доступ к huggingface.co и повторите загрузку. Готовые файлы сохранены."
-            } else { errorMessage = error.localizedDescription }
-        }
+        if !(error is CancellationError) { errorMessage = error.localizedDescription }
     }
 
     #if DEBUG

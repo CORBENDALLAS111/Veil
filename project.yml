@@ -10,21 +10,15 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: '1,2'
-    MARKETING_VERSION: '0.4.0'
-    CURRENT_PROJECT_VERSION: '6'
-packages:
-  StableDiffusion:
-    url: https://github.com/apple-aiml-research/ml-stable-diffusion.git
-    revision: ea2805dc1945be20561c77e5f6d1d9a5a637cda2
+    MARKETING_VERSION: '0.5.0'
+    CURRENT_PROJECT_VERSION: '7'
 targets:
   Veil:
     type: application
     platform: iOS
     sources:
       - path: Sources
-        excludes: [Neural/BundledVAE, 'Neural/BundledVAE/**']
-      - path: Sources/Neural/BundledVAE
-        type: folder
+        excludes: [Neural, 'Neural/**', VeilAppDelegate.swift, Licenses, 'Licenses/**']
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.corbendallas111.veil
@@ -34,8 +28,8 @@ targets:
       path: build/Info.plist
       properties:
         CFBundleDisplayName: Veil
-        CFBundleShortVersionString: '0.4.0'
-        CFBundleVersion: '6'
+        CFBundleShortVersionString: '0.5.0'
+        CFBundleVersion: '7'
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         NSPhotoLibraryAddUsageDescription: 'Veil сохраняет обработанное изображение как новое фото. Оригинал остаётся в медиатеке.'
@@ -43,13 +37,12 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false
-    dependencies:
-      - package: StableDiffusion
-        product: StableDiffusion
   VeilTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [Tests]
+    sources:
+      - path: Tests
+        excludes: [NeuralTests.swift]
     dependencies:
       - target: Veil
     settings:
