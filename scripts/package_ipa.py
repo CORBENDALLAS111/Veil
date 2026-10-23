@@ -16,6 +16,7 @@ assert magic == 0xFEEDFACF and cpu == 0x0100000C, "Expected arm64 Mach-O device 
 assert info["CFBundlePackageType"] == "APPL"
 assert "iPhoneOS" in info["CFBundleSupportedPlatforms"]
 assert (app / "Assets.car").is_file(), "Compiled app icon missing"
+assert (app / "SD2.1-OpenRAIL.txt").read_bytes() == (root / "Sources/Licenses/SD2.1-OpenRAIL.txt").read_bytes(), "Complete model license missing"
 manifest = json.loads((app / "NeuralManifest.json").read_text())
 assert "fp32" in manifest.get("vaeConversion", ""), "Release requires the tested full precision codec"
 bundled = [row for row in manifest["files"] if row.get("bundledPath")]
