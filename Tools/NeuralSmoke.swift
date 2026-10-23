@@ -1,11 +1,11 @@
 import Foundation
 import CoreGraphics
+import CoreML
 import ImageIO
 import UniformTypeIdentifiers
-import CoreML
 import StableDiffusion
-import Darwin
 import Metal
+import Darwin
 
 private struct MeanRandom: RandomSource {
     mutating func nextNormal(mean: Double, stdev: Double) -> Double { mean }
@@ -15,8 +15,30 @@ private struct MeanRandom: RandomSource {
 }
 
 @main struct NeuralSmoke {
-    static func predict(_ model: MLModel, _ features: MLFeatureProvider) throws -> MLFeatureProvider {
-        try autoreleasepool { try model.prediction(from: features) }
+    static func save(_ image: CGImage, to url: URL) throws {
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+            throw NeuralError.invalidOutput
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw NeuralError.invalidOutput }
+    }
+
+    static func metrics(_ image: CGImage, reference: [UInt8], seconds: Double) throws -> [String: Double] {
+        let actual = NeuralRaster.pixels(image)
+        guard actual.count == reference.count else { throw NeuralError.invalidOutput }
+        var mse: Double = 0, mae: Double = 0
+        for i in stride(from: 0, to: actual.count, by: 4) {
+            for c in 0..<3 {
+                let d = Double(actual[i + c]) - Double(reference[i + c])
+                mse += d * d
+                mae += abs(d)
+            }
+        }
+        let count = Double(actual.count / 4 * 3)
+        mse /= count
+        mae /= count
+        guard mse.isFinite, mse > 0 else { throw NeuralError.invalidOutput }
+        return ["mae": mae, "psnr_db": 10 * log10(255 * 255 / mse), "seconds": seconds]
     }
 
     static func main() async throws {
@@ -26,7 +48,6 @@ private struct MeanRandom: RandomSource {
         let modelURL = try await store.install { value in
             if Int(value * 100) % 10 == 0 { print("Model download \(Int(value * 100))%") }
         }
-        // Asymmetric synthetic scene; contains texture and a low-amplitude high-frequency perturbation.
         var pixels = [UInt8](repeating: 255, count: 512 * 512 * 4)
         for y in 0..<512 {
             for x in 0..<512 {
@@ -39,99 +60,40 @@ private struct MeanRandom: RandomSource {
         let input = try NeuralRaster.image(pixels, width: 512, height: 512)
         let out = root.appendingPathComponent("smoke")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let originalDestination = CGImageDestinationCreateWithURL(out.appendingPathComponent("input.png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
-        CGImageDestinationAddImage(originalDestination, input, nil)
-        _ = CGImageDestinationFinalize(originalDestination)
-        print("METAL DEVICE", MTLCreateSystemDefaultDevice()?.name ?? "none")
-        let planar = try input.planarRGBShapedArray(minValue: -1, maxValue: 1)
-        var diagnostics: [String: Any] = ["planar_shape": planar.shape,
-            "planar_first": Array(planar.scalars.prefix(5)), "planar_min": planar.scalars.min()!, "planar_max": planar.scalars.max()!]
-        var planarError: Double = 0
-        let planarScalars = planar.scalars
-        for i in 0..<(512 * 512) {
-            for c in 0..<3 { planarError += abs(Double(planarScalars[c * 512 * 512 + i]) - (Double(pixels[i * 4 + c]) / 127.5 - 1)) }
-        }
-        diagnostics["planar_mae"] = planarError / Double(512 * 512 * 3)
-        print("PLANAR", planar.shape, planar.scalars.min()!, planar.scalars.max()!, Array(planar.scalars.prefix(5)))
-        for (name, units) in [("gpu", MLComputeUnits.cpuAndGPU), ("cpu", MLComputeUnits.cpuOnly), ("ane", MLComputeUnits.cpuAndNeuralEngine)] {
-            let configuration = MLModelConfiguration()
-            configuration.computeUnits = units
-            configuration.allowLowPrecisionAccumulationOnGPU = false
-            let encoder = Encoder(modelAt: modelURL.appendingPathComponent("VAEEncoder.mlmodelc"), configuration: configuration)
-            var random: any RandomSource = MeanRandom()
-            let latent = try encoder.encode(input, scaleFactor: 0.18215, random: &random)
-            diagnostics["latent_\(name)"] = ["shape": latent.shape, "nonfinite": latent.scalars.filter { !$0.isFinite }.count,
-                "first": Array(latent.scalars.prefix(10)).map { $0.isFinite ? Double($0) : -999999 },
-                "min": Double(latent.scalars.filter(\.isFinite).min() ?? -999999),
-                "max": Double(latent.scalars.filter(\.isFinite).max() ?? -999999)]
-            print("VAE LATENT", name, latent.shape, latent.scalars.filter { !$0.isFinite }.count,
-                  latent.scalars.min()!, latent.scalars.max()!, latent.scalars.reduce(0, +) / Float(latent.scalarCount))
-            encoder.unloadResources()
-            let decoder = Decoder(modelAt: modelURL.appendingPathComponent("VAEDecoder.mlmodelc"), configuration: configuration)
-            let image = try decoder.decode([latent], scaleFactor: 0.18215)[0]
-            decoder.unloadResources()
-            let destination = CGImageDestinationCreateWithURL(out.appendingPathComponent("vae-\(name).png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
-            CGImageDestinationAddImage(destination, image, nil)
-            guard CGImageDestinationFinalize(destination) else { throw NeuralError.invalidOutput }
-            if name == "cpu" {
-                let encoderModel = try MLModel(contentsOf: modelURL.appendingPathComponent("VAEEncoder.mlmodelc"), configuration: configuration)
-                let rawEncoder = try predict(encoderModel, MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(planar)]))
-                let encoderArray = rawEncoder.featureValue(for: "latent")!.multiArrayValue!
-                let encoderValues = (0..<encoderArray.count).map { encoderArray[$0].floatValue }
-                diagnostics["raw_encoder"] = ["shape": encoderArray.shape.map(\.intValue), "nonfinite": encoderValues.filter { !$0.isFinite }.count,
-                    "first": Array(encoderValues.prefix(10)).map { $0.isFinite ? Double($0) : -999999 },
-                    "min": Double(encoderValues.filter(\.isFinite).min() ?? -999999),
-                    "max": Double(encoderValues.filter(\.isFinite).max() ?? -999999)]
-                let model = try MLModel(contentsOf: modelURL.appendingPathComponent("VAEDecoder.mlmodelc"), configuration: configuration)
-                let scaled = MLShapedArray<Float>(scalars: latent.scalars.map { $0 / 0.18215 }, shape: latent.shape)
-                let prediction = try predict(model, MLDictionaryFeatureProvider(dictionary: ["z": MLMultiArray(scaled)]))
-                let raw = prediction.featureValue(for: "image")!.multiArrayValue!
-                let all = (0..<raw.count).map { raw[$0].floatValue }
-                diagnostics["raw_decoder"] = ["shape": raw.shape.map(\.intValue), "nonfinite": all.filter { !$0.isFinite }.count,
-                    "min": Double(all.filter(\.isFinite).min() ?? -999999), "max": Double(all.filter(\.isFinite).max() ?? -999999),
-                    "first": Array(all.prefix(10)).map { $0.isFinite ? Double($0) : -999999 }]
-                var manual = [UInt8](repeating: 255, count: 512 * 512 * 4)
-                for i in 0..<(512 * 512) {
-                    for c in 0..<3 {
-                        let value = all[c * 512 * 512 + i]
-                        manual[i * 4 + c] = value.isFinite ? UInt8(max(0, min(255, ((value + 1) * 127.5).rounded()))) : 0
-                    }
+        try save(input, to: out.appendingPathComponent("input.png"))
+        var report: [String: Any] = ["engine": "SD2.1 Core ML img2img with matching FP32 VAE",
+                                   "schedule_steps": 50, "synthid_checked": false,
+                                   "metal_device": MTLCreateSystemDefaultDevice()?.name ?? "none"]
+        let configuration = MLModelConfiguration()
+        configuration.computeUnits = .cpuAndGPU
+        configuration.allowLowPrecisionAccumulationOnGPU = false
+        let startCodec = Date()
+        let encoder = Encoder(modelAt: modelURL.appendingPathComponent("VAEEncoder.mlmodelc"), configuration: configuration)
+        var random: any RandomSource = MeanRandom()
+        let latent = try encoder.encode(input, scaleFactor: 0.18215, random: &random)
+        guard latent.scalars.allSatisfy(\.isFinite) else { throw NeuralError.invalidOutput }
+        encoder.unloadResources()
+        let decoder = Decoder(modelAt: modelURL.appendingPathComponent("VAEDecoder.mlmodelc"), configuration: configuration)
+        let reconstructed = try decoder.decode([latent], scaleFactor: 0.18215)[0]
+        decoder.unloadResources()
+        try save(reconstructed, to: out.appendingPathComponent("vae-roundtrip.png"))
+        let codec = try metrics(reconstructed, reference: pixels, seconds: Date().timeIntervalSince(startCodec))
+        report["codec"] = codec
+        try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: out.appendingPathComponent("metrics.json"))
+        guard codec["mae"]! < 12 else { throw NeuralError.invalidOutput }
+        if ProcessInfo.processInfo.environment["VEIL_DIAGNOSTIC_ONLY"] != "1" {
+            for (name, strength) in [("gentle", Float(0.12)), ("balanced", Float(0.20))] {
+                let start = Date()
+                let result = try NeuralRegenerator().process(input, modelURL: modelURL, strength: strength) { _, text in print(text) }
+                try save(result, to: out.appendingPathComponent("output-\(name).png"))
+                let measurement = try metrics(result, reference: pixels, seconds: Date().timeIntervalSince(start))
+                report[name] = measurement
+                try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: out.appendingPathComponent("metrics.json"))
+                guard measurement["mae"]! > 0.1, measurement["mae"]! < (name == "gentle" ? 12 : 20) else {
+                    throw NeuralError.invalidOutput
                 }
-                let manualImage = try NeuralRaster.image(manual, width: 512, height: 512)
-                let manualDestination = CGImageDestinationCreateWithURL(out.appendingPathComponent("vae-manual.png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
-                CGImageDestinationAddImage(manualDestination, manualImage, nil)
-                _ = CGImageDestinationFinalize(manualDestination)
-            }
-            try JSONSerialization.data(withJSONObject: diagnostics, options: [.prettyPrinted, .sortedKeys]).write(to: out.appendingPathComponent("diagnostics.json"))
-            if ProcessInfo.processInfo.environment["VEIL_DIAGNOSTIC_ONLY"] == "1" { return }
-        }
-        let start = Date()
-        let output = try NeuralRegenerator().process(input, modelURL: modelURL, strength: 0.12) { _, text in print(text) }
-        let actual = NeuralRaster.pixels(output)
-        var mse: Double = 0
-        var mae: Double = 0
-        for i in stride(from: 0, to: pixels.count, by: 4) {
-            for c in 0..<3 {
-                let d = Double(actual[i + c]) - Double(pixels[i + c])
-                mse += d * d
-                mae += abs(d)
             }
         }
-        mse /= Double(512 * 512 * 3)
-        mae /= Double(512 * 512 * 3)
-        for (name, image) in [("input.png", input), ("output.png", output)] {
-            let destination = CGImageDestinationCreateWithURL(out.appendingPathComponent(name) as CFURL, UTType.png.identifier as CFString, 1, nil)!
-            CGImageDestinationAddImage(destination, image, nil)
-            guard CGImageDestinationFinalize(destination) else { throw NeuralError.invalidOutput }
-        }
-        let metrics: [String: Any] = ["engine": "SD2.1 Core ML img2img", "strength": 0.12, "scheduleSteps": 50,
-                                     "mae": mae, "psnr_db": 10 * log10(255 * 255 / mse), "seconds": Date().timeIntervalSince(start),
-                                     "synthid_checked": false]
-        try JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys]).write(to: out.appendingPathComponent("metrics.json"))
-        print(String(data: try JSONSerialization.data(withJSONObject: metrics), encoding: .utf8)!)
-        fflush(nil)
-        guard output.width == 512, output.height == 512, mse.isFinite, mae > 0.1, mae < 12 else {
-            throw NeuralError.invalidOutput
-        }
+        print(String(data: try JSONSerialization.data(withJSONObject: report), encoding: .utf8)!)
     }
 }

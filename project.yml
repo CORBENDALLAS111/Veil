@@ -22,7 +22,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources
-        excludes: [Neural/BundledVAE]
+        excludes: [Neural/BundledVAE, 'Neural/BundledVAE/**']
       - path: Sources/Neural/BundledVAE
         type: folder
     settings:

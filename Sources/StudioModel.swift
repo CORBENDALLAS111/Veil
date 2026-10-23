@@ -41,7 +41,7 @@ final class StudioModel {
 
     func downloadModel() {
         guard !isWorking else { return }
-        guard ProcessInfo.processInfo.physicalMemory >= 5_500_000_000 else {
+        guard ProcessInfo.processInfo.physicalMemory >= 7_000_000_000 else {
             errorMessage = NeuralError.insufficientMemory.localizedDescription
             return
         }

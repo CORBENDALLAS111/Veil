@@ -289,7 +289,7 @@ private struct AboutView: View {
                     Link("Открыть детектор", destination: URL(string: "https://synthid.com/")!)
                 }
                 Section("Фото") {
-                    Text("Фото обрабатываются на устройстве. Модель загружается один раз — \(NeuralManifest.downloadLabel). Кодек полной точности включён в приложение. Нужно от 6 ГБ оперативной памяти. Оригинал сохраняется.")
+                    Text("Фото обрабатываются на устройстве. Модель загружается один раз — \(NeuralManifest.downloadLabel). Кодек полной точности включён в приложение. Нужно от 8 ГБ оперативной памяти. Оригинал сохраняется.")
                     Text("Нейросеть обрабатывает длинную сторону до 1536 пикселей. Текст, лица и мелкие детали могут измениться. Метаданные очищаются в обоих режимах.")
                 }
                 Section("Экспорт") {
@@ -298,6 +298,7 @@ private struct AboutView: View {
                 Section("Модель и лицензии") {
                     Link("Apple Stable Diffusion · MIT", destination: URL(string: "https://github.com/apple-aiml-research/ml-stable-diffusion")!)
                     Link("SD 2.1 · условия OpenRAIL++", destination: URL(string: "https://huggingface.co/apple/coreml-stable-diffusion-2-1-base-palettized")!)
+                    Link("Кодек SD 2.1 · источник весов", destination: URL(string: "https://huggingface.co/sd2-community/stable-diffusion-2-1-base")!)
                 }
                 Section { Text("Veil \(version)").foregroundStyle(.secondary) }
             }

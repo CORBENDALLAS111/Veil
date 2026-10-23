@@ -158,9 +158,12 @@ final class NeuralRegenerator {
         let compute = MLModelConfiguration()
         #if targetEnvironment(simulator)
         compute.computeUnits = .cpuOnly
+        #elseif os(macOS)
+        compute.computeUnits = .cpuAndGPU
         #else
         compute.computeUnits = .cpuAndNeuralEngine
         #endif
+        compute.allowLowPrecisionAccumulationOnGPU = false
         progress(0, "Подготовка нейросети…")
         let vaeCompute = MLModelConfiguration()
         vaeCompute.computeUnits = .cpuAndGPU

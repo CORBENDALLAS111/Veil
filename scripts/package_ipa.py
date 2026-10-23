@@ -1,5 +1,6 @@
 """Package a real device build for external signing / LiveContainer, and validate it."""
 import hashlib
+import json
 import pathlib
 import plistlib
 import shutil
@@ -15,6 +16,16 @@ assert magic == 0xFEEDFACF and cpu == 0x0100000C, "Expected arm64 Mach-O device 
 assert info["CFBundlePackageType"] == "APPL"
 assert "iPhoneOS" in info["CFBundleSupportedPlatforms"]
 assert (app / "Assets.car").is_file(), "Compiled app icon missing"
+manifest = json.loads((app / "NeuralManifest.json").read_text())
+assert "fp32" in manifest.get("vaeConversion", ""), "Release requires the tested full precision codec"
+bundled = [row for row in manifest["files"] if row.get("bundledPath")]
+assert any(row["path"].startswith("VAEEncoder.mlmodelc/") for row in bundled)
+assert any(row["path"].startswith("VAEDecoder.mlmodelc/") for row in bundled)
+for row in bundled:
+    resource = (app / row["bundledPath"]).resolve()
+    assert resource.is_relative_to(app.resolve())
+    assert resource.stat().st_size == row["bytes"], "Model resource missing or truncated"
+    assert hashlib.sha256(resource.read_bytes()).hexdigest() == row["sha256"], "Model resource hash mismatch"
 output = root / "build/artifacts"
 output.mkdir(parents=True, exist_ok=True)
 ipa = output / "Veil-unsigned.ipa"
