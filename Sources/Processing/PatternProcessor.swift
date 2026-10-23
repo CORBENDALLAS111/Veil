@@ -175,13 +175,14 @@ enum PatternProcessor {
                                 let partner = ((side - y) % side) * side + (side - x) % side
                                 if i == partner { re[i] = 0; im[i] = 0; continue }
                                 guard i < partner else { continue }
-                                // Deterministic, identical across tiles, with
-                                // conjugate symmetry so inverse output is real.
-                                var hash = UInt32(i) &* 747796405 &+ 2891336453
-                                hash = ((hash >> ((hash >> 28) + 4)) ^ hash) &* 277803737
-                                hash = (hash >> 22) ^ hash
-                                let sign: Float = hash & 1 == 0 ? -1 : 1
-                                let angle = band[i] * sign * (0.4 + 0.6 * Float(hash >> 1) / Float(UInt32.max >> 1))
+                                // Smooth phase across adjacent bins prevents
+                                // cancellation when overlapping windows blend.
+                                // Independent random bin phases caused softening
+                                // even though individual FFT magnitudes survived.
+                                let sx = Float(x <= side / 2 ? x : x - side)
+                                let sy = Float(y <= side / 2 ? y : y - side)
+                                let direction = (0.8 * sx + 0.6 * sy) / max(1, sqrt(sx * sx + sy * sy))
+                                let angle = band[i] * direction
                                 let cosine = cos(angle) - 1, sine = sin(angle)
                                 let dr = re[i] * cosine - im[i] * sine
                                 let di = re[i] * sine + im[i] * cosine
@@ -240,7 +241,7 @@ enum PatternProcessor {
     /// Reject locally softened patches, then feather their surrounding cells.
     /// Original pixels can be recovered exactly from the integer offset map.
     private static func preserveDetail(_ pixels: inout [UInt8], luma: [Float], applied: [Int8], width: Int, height: Int) throws {
-        let step = 32, columns = (width + 31) / 32, rows = (height + 31) / 32
+        let step = 64, columns = (width + 63) / 64, rows = (height + 63) / 64
         var accepted = [Float](repeating: 1, count: columns * rows)
         for gy in 0..<rows {
             try Task.checkCancellation()
@@ -258,7 +259,7 @@ enum PatternProcessor {
                         samples += 1
                     }
                 }
-                if before > Float(samples) * 1.5 && after < before * 0.97 { accepted[gy * columns + gx] = 0 }
+                if before > Float(samples) * 0.05 && after < before * 0.97 { accepted[gy * columns + gx] = 0 }
             }
         }
         // A rejected cell also protects its immediate neighbors, avoiding a
