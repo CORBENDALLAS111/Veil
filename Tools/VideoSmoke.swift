@@ -92,13 +92,15 @@ import UniformTypeIdentifiers
         guard reader.startReading() else { throw VideoError.read }
         var hash = SHA256(), times: [Double] = []
         while let sample = output.copyNextSampleBuffer() {
-            times.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds)
-            if let block = CMSampleBufferGetDataBuffer(sample) {
-                var data = Data(count: CMBlockBufferGetDataLength(block))
-                let status = data.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: $0.count, destination: $0.baseAddress!) }
-                guard status == noErr else { throw VideoError.read }
-                hash.update(data: data)
-            }
+            // Marker-only buffers carry events, not media packets or frames.
+            guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
+            let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+            try require(time.isFinite, "Non-numeric timestamp on a media payload")
+            times.append(time)
+            var data = Data(count: CMBlockBufferGetDataLength(block))
+            let status = data.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: $0.count, destination: $0.baseAddress!) }
+            guard status == noErr else { throw VideoError.read }
+            hash.update(data: data)
         }
         guard reader.status == .completed else { throw VideoError.read }
         return (hash.finalize().map { String(format: "%02x", $0) }.joined(), times)

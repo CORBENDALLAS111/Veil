@@ -238,6 +238,14 @@ actor VideoProcessor {
             var advanced = false
             if !videoFinished, videoInput.isReadyForMoreMediaData {
                 if let sample = videoOutput.copyNextSampleBuffer() {
+                    // Reader outputs may contain marker-only buffers carrying
+                    // timing/end-of-stream attachments, with invalid PTS and
+                    // no image. Forward the state change, not a fake frame.
+                    if CMSampleBufferGetImageBuffer(sample) == nil && CMSampleBufferGetDataBuffer(sample) == nil {
+                        guard videoInput.append(sample) else { throw VideoError.write }
+                        lastActivity = Date()
+                        continue
+                    }
                     let pts = CMSampleBufferGetPresentationTimeStamp(sample)
                     guard pts.isValid, pts.seconds.isFinite else { throw VideoError.read }
                     if let adaptor {
