@@ -42,7 +42,7 @@ for source in sorted({row['source'] for row in rows}):
         for key, value in row.get('quality', {}).items():
             if isinstance(value, float): value = round(value, 6)
             parts.append('<tr><th>' + esc(key) + '</th><td>' + esc(value) + '</td></tr>')
-        parts.append('</table><p>Распознанный текст: ' + esc(' | '.join(row.get('outputText', []))) + '</p></details></article>')
+        parts.append('</table><p>OCR исходника: ' + esc(' | '.join(row.get('sourceText', []))) + '</p><p>OCR результата: ' + esc(' | '.join(row.get('outputText', []))) + '</p></details></article>')
 parts.append('<p><a href="detector-results.csv">Таблица для фиксации результатов детектора</a> · <a href="results.json">Все измерения</a></p></html>')
 (root / 'index.html').write_text('\n'.join(parts), encoding='utf-8')
 for row in rows:

@@ -1,5 +1,6 @@
 import Accelerate
 import CoreGraphics
+import CryptoKit
 import Foundation
 import Vision
 
@@ -37,17 +38,8 @@ enum PatternProcessor {
     static func process(_ image: CGImage, strength: ProcessingStrength, clarity: Bool = false,
                         resolution: OutputResolution = .original,
                         progress: @Sendable (Double, String) -> Void) throws -> CGImage {
-        progress(0.02, "Защита текста…")
-        // Fail closed if Vision fails: never silently process unprotected text.
-        let regions = try recognizeText(image)
         var bytes = PixelRaster.pixels(image)
-        try filter(&bytes, width: image.width, height: image.height, strength: strength,
-                   protectedRects: regions.map(\.rect)) { value, label in progress(value * 0.7, label) }
-        try Task.checkCancellation()
-        if clarity {
-            progress(0.68, "Мягкая чёткость…")
-            try GentleClarity.apply(&bytes, width: image.width, height: image.height, protectedRects: regions.map(\.rect))
-        }
+        try processPixels(&bytes, image: image, strength: strength, clarity: clarity, progress: progress)
         let size = resolution.dimensions(width: image.width, height: image.height)
         if size.width != image.width || size.height != image.height {
             progress(0.72, "Масштабирование 4K…")
@@ -56,19 +48,69 @@ enum PatternProcessor {
         }
         let output = try PixelRaster.image(bytes, width: size.width, height: size.height)
         progress(0.94, "Проверка текста…")
-        if !regions.isEmpty {
-            let after = try recognizeText(output)
-            // OCR can vary even if pixels in its bounding box did not change.
-            // Reject uncertainty instead of delivering potentially damaged text.
-            for before in regions {
-                guard after.contains(where: { candidate in
-                    let rect = before.rect.applying(CGAffineTransform(scaleX: CGFloat(size.width) / CGFloat(image.width),
-                                                                      y: CGFloat(size.height) / CGFloat(image.height)))
-                    return candidate.text == before.text && candidate.rect.intersects(rect)
-                }) else { throw ProcessingError.textChanged }
-            }
-        }
         return output
+    }
+
+    /// Video can keep the decoded source for temporal protection without two
+    /// extra CGImage/bitmap readbacks. Photo rendering uses the same path.
+    static func processPixels(_ bytes: inout [UInt8], image: CGImage, strength: ProcessingStrength,
+                              clarity: Bool = false, progress: @Sendable (Double, String) -> Void = { _, _ in }) throws {
+        progress(0.02, "Защита текста…")
+        // Fail closed if Vision fails: never silently process unprotected text.
+        let regions = try recognizeText(image)
+        let textBefore = textDigests(bytes, width: image.width, height: image.height, regions: regions)
+        try filter(&bytes, width: image.width, height: image.height, strength: strength,
+                   protectedRects: regions.map(\.rect)) { value, label in progress(value * 0.7, label) }
+        try Task.checkCancellation()
+        if clarity {
+            progress(0.68, "Мягкая чёткость…")
+            try GentleClarity.apply(&bytes, width: image.width, height: image.height, protectedRects: regions.map(\.rect))
+        }
+        // Check the actual protected source pixels, not OCR transcription.
+        // Recognition can change on identical lettering after scaling or when
+        // its surrounding context changes. This does not imply glyph damage.
+        guard textDigests(bytes, width: image.width, height: image.height, regions: regions) == textBefore
+        else { throw ProcessingError.textChanged }
+    }
+
+    private struct Rotation: Sendable { let index: Int; let partner: Int; let cosine: Float; let sine: Float }
+    private struct PhaseKernel: Sendable { let window: [Float]; let rotations: [Rotation] }
+    private static let gentleKernel = makeKernel(.gentle)
+    private static let balancedKernel = makeKernel(.balanced)
+    private static let strongKernel = makeKernel(.strong)
+
+    private static func makeKernel(_ strength: ProcessingStrength) -> PhaseKernel {
+        let side = 256
+        let window: [Float] = (0..<side).map { 0.5 - 0.5 * cos(2 * .pi * Float($0) / Float(side)) }
+        var rotations: [Rotation] = []
+        rotations.reserveCapacity(side * side / 2)
+        for y in 0..<side { for x in 0..<side {
+            let i = y * side + x, partner = ((side - y) % side) * side + (side - x) % side
+            guard i < partner else { continue }
+            let fx = Float(min(x, side - x)) / Float(side), fy = Float(min(y, side - y)) / Float(side)
+            let radius = sqrt(fx * fx + fy * fy)
+            let low = smooth((radius - 1 / 48.0) / (1 / 32.0 - 1 / 48.0))
+            let high = 1 - smooth((radius - 1 / 8.0) / (1 / 6.0 - 1 / 8.0))
+            let band = strength.phaseLimit * low * high
+            let sx = Float(x <= side / 2 ? x : x - side), sy = Float(y <= side / 2 ? y : y - side)
+            let direction = (0.8 * sx + 0.6 * sy) / max(1, sqrt(sx * sx + sy * sy))
+            let angle = band * direction
+            rotations.append(Rotation(index: i, partner: partner, cosine: cos(angle) - 1, sine: sin(angle)))
+        } }
+        return PhaseKernel(window: window, rotations: rotations)
+    }
+
+    private static func textDigests(_ pixels: [UInt8], width: Int, height: Int, regions: [TextRegion]) -> [SHA256.Digest] {
+        regions.map { region in
+            let rect = region.rect.insetBy(dx: -4, dy: -4).integral
+            let x0 = max(0, min(width, Int(rect.minX))), x1 = max(0, min(width, Int(rect.maxX)))
+            let y0 = max(0, min(height, Int(rect.minY))), y1 = max(0, min(height, Int(rect.maxY)))
+            var digest = SHA256()
+            if x0 < x1 && y0 < y1 {
+                for y in y0..<y1 { digest.update(data: Data(pixels[((y * width + x0) * 4)..<((y * width + x1) * 4)])) }
+            }
+            return digest.finalize()
+        }
     }
 
     static func filter(_ pixels: inout [UInt8], width: Int, height: Int,
@@ -91,14 +133,15 @@ enum PatternProcessor {
         // Bounding boxes refer to top-left raster coordinates, padded to cover
         // antialiasing and context just outside the recognized glyphs.
         let rects = protectedRects.map { $0.insetBy(dx: -4, dy: -4).integral }
-        // Distance from protected content. Freeze a surrounding margin and
-        // feather beyond it so the band filter cannot draw halos around text.
-        var protectionDistance = [UInt8](repeating: 96, count: width * height)
+        // Text and contrast edges need different margins. A single 96 px edge
+        // halo froze entire detailed photographs in the 0.6 benchmark.
+        var textDistance = [UInt8](repeating: 32, count: width * height)
+        var edgeDistance = [UInt8](repeating: 12, count: width * height)
         for rect in rects {
             let x0 = max(0, min(width, Int(rect.minX))), x1 = max(0, min(width, Int(rect.maxX)))
             let y0 = max(0, min(height, Int(rect.minY))), y1 = max(0, min(height, Int(rect.maxY)))
             if x0 < x1 && y0 < y1 {
-                for y in y0..<y1 { for x in x0..<x1 { protectionDistance[y * width + x] = 0 } }
+                for y in y0..<y1 { for x in x0..<x1 { textDistance[y * width + x] = 0 } }
             }
         }
         for y in 0..<height {
@@ -112,33 +155,34 @@ enum PatternProcessor {
                         highest = max(highest, luma[yy * width + xx])
                     }
                 }
-                if highest - lowest >= 18 || pixels[i * 4 + 3] < 255 { protectionDistance[i] = 0 }
-                if x > 0 { protectionDistance[i] = min(protectionDistance[i], protectionDistance[i - 1] + 1) }
-                if y > 0 { protectionDistance[i] = min(protectionDistance[i], protectionDistance[i - width] + 1) }
+                if highest - lowest >= 18 || pixels[i * 4 + 3] < 255 { edgeDistance[i] = 0 }
+                if x > 0 {
+                    edgeDistance[i] = min(edgeDistance[i], edgeDistance[i - 1] + 1)
+                    textDistance[i] = min(textDistance[i], textDistance[i - 1] + 1)
+                }
+                if y > 0 {
+                    edgeDistance[i] = min(edgeDistance[i], edgeDistance[i - width] + 1)
+                    textDistance[i] = min(textDistance[i], textDistance[i - width] + 1)
+                }
             }
         }
         for y in stride(from: height - 1, through: 0, by: -1) {
             try Task.checkCancellation()
             for x in stride(from: width - 1, through: 0, by: -1) {
                 let i = y * width + x
-                if x + 1 < width { protectionDistance[i] = min(protectionDistance[i], protectionDistance[i + 1] + 1) }
-                if y + 1 < height { protectionDistance[i] = min(protectionDistance[i], protectionDistance[i + width] + 1) }
+                if x + 1 < width {
+                    edgeDistance[i] = min(edgeDistance[i], edgeDistance[i + 1] + 1)
+                    textDistance[i] = min(textDistance[i], textDistance[i + 1] + 1)
+                }
+                if y + 1 < height {
+                    edgeDistance[i] = min(edgeDistance[i], edgeDistance[i + width] + 1)
+                    textDistance[i] = min(textDistance[i], textDistance[i + width] + 1)
+                }
             }
         }
-        let window: [Float] = (0..<side).map { 0.5 - 0.5 * cos(2 * .pi * Float($0) / Float(side)) }
-        var band = [Float](repeating: 0, count: count)
-        for y in 0..<side {
-            for x in 0..<side {
-                let fx = Float(min(x, side - x)) / Float(side)
-                let fy = Float(min(y, side - y)) / Float(side)
-                let radius = sqrt(fx * fx + fy * fy)
-                // Phase perturbation preserves each tile's spectral magnitudes.
-                // Cover periods 8–32 px, taper to 6–48; never blur by damping.
-                let low = smooth((radius - 1 / 48.0) / (1 / 32.0 - 1 / 48.0))
-                let high = 1 - smooth((radius - 1 / 8.0) / (1 / 6.0 - 1 / 8.0))
-                band[y * side + x] = strength.phaseLimit * low * high
-            }
-        }
+        let kernel: PhaseKernel
+        switch strength { case .gentle: kernel = gentleKernel; case .balanced: kernel = balancedKernel; case .strong: kernel = strongKernel }
+        let window = kernel.window
         var real = [Float](repeating: 0, count: count)
         var imaginary = real
         // Ring buffers bound working memory independently of photo height.
@@ -169,26 +213,15 @@ enum PatternProcessor {
                     imaginary.withUnsafeMutableBufferPointer { im in
                         var split = DSPSplitComplex(realp: re.baseAddress!, imagp: im.baseAddress!)
                         vDSP_fft2d_zip(setup, &split, 1, side, 8, 8, FFTDirection(FFT_FORWARD))
-                        for y in 0..<side {
-                            for x in 0..<side {
-                                let i = y * side + x
-                                let partner = ((side - y) % side) * side + (side - x) % side
-                                if i == partner { re[i] = 0; im[i] = 0; continue }
-                                guard i < partner else { continue }
-                                // Smooth phase across adjacent bins prevents
-                                // cancellation when overlapping windows blend.
-                                // Independent random bin phases caused softening
-                                // even though individual FFT magnitudes survived.
-                                let sx = Float(x <= side / 2 ? x : x - side)
-                                let sy = Float(y <= side / 2 ? y : y - side)
-                                let direction = (0.8 * sx + 0.6 * sy) / max(1, sqrt(sx * sx + sy * sy))
-                                let angle = band[i] * direction
-                                let cosine = cos(angle) - 1, sine = sin(angle)
-                                let dr = re[i] * cosine - im[i] * sine
-                                let di = re[i] * sine + im[i] * cosine
-                                re[i] = dr; im[i] = di
-                                re[partner] = dr; im[partner] = -di
-                            }
+                        for i in [0, side / 2, count / 2, count / 2 + side / 2] { re[i] = 0; im[i] = 0 }
+                        // The same coefficients used in 0.7, cached once per
+                        // strength instead of evaluating trig for every tile.
+                        for rotation in kernel.rotations {
+                            let i = rotation.index
+                            let dr = re[i] * rotation.cosine - im[i] * rotation.sine
+                            let di = re[i] * rotation.sine + im[i] * rotation.cosine
+                            re[i] = dr; im[i] = di
+                            re[rotation.partner] = dr; im[rotation.partner] = -di
                         }
                         vDSP_fft2d_zip(setup, &split, 1, side, 8, 8, FFTDirection(FFT_INVERSE))
                     }
@@ -209,7 +242,7 @@ enum PatternProcessor {
                     for x in 0..<width {
                         let i = y * width + x, p = i * 4, ring = (y % side) * width + x
                         defer { delta[ring] = 0; weights[ring] = 0 }
-                        guard protectionDistance[i] > 32, pixels[p + 3] == 255, weights[ring] > 0.0001 else { continue }
+                        guard textDistance[i] > 8, edgeDistance[i] > 2, pixels[p + 3] == 255, weights[ring] > 0.0001 else { continue }
                         var lowest = luma[i], highest = luma[i]
                         for yy in max(0, y - 1)...min(height - 1, y + 1) {
                             for xx in max(0, x - 1)...min(width - 1, x + 1) {
@@ -217,8 +250,12 @@ enum PatternProcessor {
                                 highest = max(highest, luma[yy * width + xx])
                             }
                         }
-                        let edgeGain = (1 - smooth((highest - lowest - 5) / 13)) * smooth((Float(protectionDistance[i]) - 32) / 64)
-                        let amount = max(-strength.pixelLimit, min(strength.pixelLimit, delta[ring] / weights[ring])) * edgeGain
+                        let edgeGain = (1 - smooth((highest - lowest - 5) / 13))
+                            * smooth((Float(edgeDistance[i]) - 2) / 10) * smooth((Float(textDistance[i]) - 8) / 24)
+                        // Flat areas cannot receive ringing from distant edges.
+                        // Weak real texture still has a small nonzero budget.
+                        let budget = min(strength.pixelLimit, (highest - lowest) * 0.75)
+                        let amount = max(-budget, min(budget, delta[ring] / weights[ring])) * edgeGain
                         // Keep a common offset without channel clipping. This
                         // also permits exact rollback during the detail check.
                         let low = Int(min(pixels[p], min(pixels[p + 1], pixels[p + 2])))

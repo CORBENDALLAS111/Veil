@@ -27,23 +27,17 @@ ipa = root / 'build/artifacts/Veil-unsigned.ipa'
 digest = hashlib.sha256(ipa.read_bytes()).hexdigest()
 assert (root / 'build/artifacts/SHA256SUMS.txt').read_text().split()[0] == digest
 assert not any(r['tag_name'] == tag for r in api(f'/repos/{repo}/releases')), 'A release with this version already exists; bump the version rather than replacing it'
-body = f'''Обновление для сохранения деталей: без генеративной перерисовки, скачивания моделей и отправки фото на сервер.
+notes = root / 'docs/releases' / (version + '.md')
+assert notes.is_file(), 'Write version-specific release notes before publishing'
+body = notes.read_text(encoding='utf-8') + f'''
 
-- Вместо приглушения частот — ограниченное изменение фазы с сохранением спектральных амплитуд каждого блока. Экспериментальное ослабление скрытого паттерна; эффективность против SynthID не подтверждена.
-- Проверка детализации по участкам: изменения ослабляются там, где падает энергия градиентов. Распознанный текст и резкие границы защищены; повторная проверка текста до экспорта.
-- Отдельная мягкая чёткость: изменение не более одного уровня RGB, без сильного шарпинга и шумоподавления.
-- Выбор исходного размера или 4K: 3840 px по длинной стороне, пропорции сохраняются. Монотонная интерполяция при увеличении; усреднение площади при уменьшении. Масштабирование не восстанавливает утраченные детали.
-- PNG без потерь, JPEG со сжатием, очистка исходных метаданных, сравнение и Liquid Glass.
-
-Нужна iOS 17+, входные фото до 20 Мп, обработка SDR sRGB. **IPA без подписи: нужна внешняя подпись или совместимый контейнер.** SynthID может сохраниться, особенно в защищённых областях. Эффективность против официального детектора и производительность на физическом iPhone не измерены.
-
-Проверки: модульные и UI-тесты, реальный OCR английского и русского текста в исходном и 4K-размере, отсутствие выбросов при масштабировании, прозрачность и ограничение изменений. [GitHub Actions](https://github.com/{repo}/actions/runs/{run_id}).
-
+[Сборка и все проверки GitHub Actions](https://github.com/{repo}/actions/runs/{run_id}).
+Исходники сборки: `{sha}`.
 SHA-256 IPA: `{digest}`
 '''
 
 release = api(f'/repos/{repo}/releases', {'tag_name': tag, 'target_commitish': sha,
-    'name': 'Veil ' + version + ' — детали и 4K', 'prerelease': True, 'draft': True, 'body': body})
+    'name': 'Veil ' + version + ' — апскейл видео', 'prerelease': True, 'draft': True, 'body': body})
 for path in [ipa, root / 'build/artifacts/SHA256SUMS.txt']:
     data = path.read_bytes()
     asset = api(release['upload_url'].split('{', 1)[0] + '?name=' + path.name, data)
