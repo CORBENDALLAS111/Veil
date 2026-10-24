@@ -16,7 +16,7 @@ concurrency:
 jobs:
   release:
     if: (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release ')) || (github.event_name == 'workflow_dispatch' && inputs.publish)
-    needs: [pixel, video, build, test]
+    needs: [pixel, video, upscale, build, test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -91,7 +91,7 @@ jobs:
       - name: Native video, audio passthrough, timing and rotation checks
         run: |
           mkdir -p build/video-check
-          swiftc -O -DDEBUG -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Sources/Processing/VideoProcessor.swift Sources/VideoFixture.swift Tools/VideoSmoke.swift -o build/video-check/smoke
+          swiftc -O -DDEBUG -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Sources/Processing/VideoUpscaler.swift Sources/Processing/VideoProcessor.swift Sources/VideoFixture.swift Tools/VideoSmoke.swift -o build/video-check/smoke
           build/video-check/smoke build/video-check
       - uses: actions/upload-artifact@v4
         if: always()
@@ -99,6 +99,27 @@ jobs:
           name: Veil-video-check
           path: build/video-check/
           retention-days: 14
+  upscale:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+      - name: Compile released baseline and optimized processing
+        run: |
+          git fetch --depth=1 origin dd70bf6333ab2ea0bf7eb04e5d1fe4239cf00f26
+          python3 scripts/performance_baseline.py
+          swiftc -O -DDEBUG -DUPSCALE_SMOKE -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Sources/Processing/VideoUpscaler.swift Sources/Processing/VideoProcessor.swift Sources/VideoFixture.swift build/upscale-check/BaselinePatternProcessor.swift build/upscale-check/BaselineVideoProcessor.swift Tools/VideoSmoke.swift Tools/UpscaleSmoke.swift -o build/upscale-check/smoke
+      - name: Compare 720p to 1080p and 4K, text, audio, timing and performance
+        run: build/upscale-check/smoke build/upscale-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Veil-upscale-performance
+          path: build/upscale-check/
+          retention-days: 30
   test:
     runs-on: macos-15
     timeout-minutes: 25

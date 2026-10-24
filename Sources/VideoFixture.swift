@@ -6,12 +6,12 @@ import Foundation
 /// Generated test media only. Excluded from release builds by DEBUG, with no
 /// external clips, personal content or model payloads.
 enum VideoFixture {
-    static func make(rotated: Bool = false, variableTiming: Bool = false, silent: Bool = false) async throws -> URL {
+    static func make(rotated: Bool = false, variableTiming: Bool = false, silent: Bool = false,
+                     width: Int = 192, height: Int = 128, frameCount: Int = 12) async throws -> URL {
         let url = try VideoFiles.destination()
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         var complete = false
         defer { if !complete { writer.cancelWriting(); VideoFiles.remove(url) } }
-        let width = 192, height = 128
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: width, AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 2_000_000, AVVideoAllowFrameReorderingKey: false]])
@@ -29,7 +29,7 @@ enum VideoFixture {
         writer.metadata = [title]
         guard writer.startWriting() else { throw VideoError.write }
         writer.startSession(atSourceTime: .zero)
-        let timestamps: [Int64] = variableTiming ? [0, 40, 110, 160, 250, 350, 460, 550] : (0..<12).map { Int64($0 * 50) }
+        let timestamps: [Int64] = variableTiming ? [0, 40, 110, 160, 250, 350, 460, 550] : (0..<frameCount).map { Int64($0 * 600 / frameCount) }
         for (index, time) in timestamps.enumerated() {
             while !input.isReadyForMoreMediaData {
                 guard writer.status == .writing else { throw VideoError.write }
@@ -44,6 +44,8 @@ enum VideoFixture {
                 bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue) {
                 drawing.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.65, alpha: 1))
                 drawing.fill(CGRect(x: 0, y: 0, width: width, height: height))
+                let scale = min(CGFloat(width) / 192, CGFloat(height) / 128)
+                drawing.scaleBy(x: scale, y: scale)
                 drawing.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.05, alpha: 1))
                 drawing.fillEllipse(in: CGRect(x: 12 + index * 4, y: 16, width: 28, height: 28))
                 let font = CTFontCreateWithName("Helvetica" as CFString, 18, nil)

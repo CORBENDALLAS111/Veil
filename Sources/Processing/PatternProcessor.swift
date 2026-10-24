@@ -38,10 +38,26 @@ enum PatternProcessor {
     static func process(_ image: CGImage, strength: ProcessingStrength, clarity: Bool = false,
                         resolution: OutputResolution = .original,
                         progress: @Sendable (Double, String) -> Void) throws -> CGImage {
+        var bytes = PixelRaster.pixels(image)
+        try processPixels(&bytes, image: image, strength: strength, clarity: clarity, progress: progress)
+        let size = resolution.dimensions(width: image.width, height: image.height)
+        if size.width != image.width || size.height != image.height {
+            progress(0.72, "Масштабирование 4K…")
+            bytes = try DetailResampler.resize(bytes, width: image.width, height: image.height,
+                                               outputWidth: size.width, outputHeight: size.height)
+        }
+        let output = try PixelRaster.image(bytes, width: size.width, height: size.height)
+        progress(0.94, "Проверка текста…")
+        return output
+    }
+
+    /// Video can keep the decoded source for temporal protection without two
+    /// extra CGImage/bitmap readbacks. Photo rendering uses the same path.
+    static func processPixels(_ bytes: inout [UInt8], image: CGImage, strength: ProcessingStrength,
+                              clarity: Bool = false, progress: @Sendable (Double, String) -> Void = { _, _ in }) throws {
         progress(0.02, "Защита текста…")
         // Fail closed if Vision fails: never silently process unprotected text.
         let regions = try recognizeText(image)
-        var bytes = PixelRaster.pixels(image)
         let textBefore = textDigests(bytes, width: image.width, height: image.height, regions: regions)
         try filter(&bytes, width: image.width, height: image.height, strength: strength,
                    protectedRects: regions.map(\.rect)) { value, label in progress(value * 0.7, label) }
@@ -55,15 +71,33 @@ enum PatternProcessor {
         // its surrounding context changes. This does not imply glyph damage.
         guard textDigests(bytes, width: image.width, height: image.height, regions: regions) == textBefore
         else { throw ProcessingError.textChanged }
-        let size = resolution.dimensions(width: image.width, height: image.height)
-        if size.width != image.width || size.height != image.height {
-            progress(0.72, "Масштабирование 4K…")
-            bytes = try DetailResampler.resize(bytes, width: image.width, height: image.height,
-                                               outputWidth: size.width, outputHeight: size.height)
-        }
-        let output = try PixelRaster.image(bytes, width: size.width, height: size.height)
-        progress(0.94, "Проверка текста…")
-        return output
+    }
+
+    private struct Rotation: Sendable { let index: Int; let partner: Int; let cosine: Float; let sine: Float }
+    private struct PhaseKernel: Sendable { let window: [Float]; let rotations: [Rotation] }
+    private static let gentleKernel = makeKernel(.gentle)
+    private static let balancedKernel = makeKernel(.balanced)
+    private static let strongKernel = makeKernel(.strong)
+
+    private static func makeKernel(_ strength: ProcessingStrength) -> PhaseKernel {
+        let side = 256
+        let window: [Float] = (0..<side).map { 0.5 - 0.5 * cos(2 * .pi * Float($0) / Float(side)) }
+        var rotations: [Rotation] = []
+        rotations.reserveCapacity(side * side / 2)
+        for y in 0..<side { for x in 0..<side {
+            let i = y * side + x, partner = ((side - y) % side) * side + (side - x) % side
+            guard i < partner else { continue }
+            let fx = Float(min(x, side - x)) / Float(side), fy = Float(min(y, side - y)) / Float(side)
+            let radius = sqrt(fx * fx + fy * fy)
+            let low = smooth((radius - 1 / 48.0) / (1 / 32.0 - 1 / 48.0))
+            let high = 1 - smooth((radius - 1 / 8.0) / (1 / 6.0 - 1 / 8.0))
+            let band = strength.phaseLimit * low * high
+            let sx = Float(x <= side / 2 ? x : x - side), sy = Float(y <= side / 2 ? y : y - side)
+            let direction = (0.8 * sx + 0.6 * sy) / max(1, sqrt(sx * sx + sy * sy))
+            let angle = band * direction
+            rotations.append(Rotation(index: i, partner: partner, cosine: cos(angle) - 1, sine: sin(angle)))
+        } }
+        return PhaseKernel(window: window, rotations: rotations)
     }
 
     private static func textDigests(_ pixels: [UInt8], width: Int, height: Int, regions: [TextRegion]) -> [SHA256.Digest] {
@@ -146,20 +180,9 @@ enum PatternProcessor {
                 }
             }
         }
-        let window: [Float] = (0..<side).map { 0.5 - 0.5 * cos(2 * .pi * Float($0) / Float(side)) }
-        var band = [Float](repeating: 0, count: count)
-        for y in 0..<side {
-            for x in 0..<side {
-                let fx = Float(min(x, side - x)) / Float(side)
-                let fy = Float(min(y, side - y)) / Float(side)
-                let radius = sqrt(fx * fx + fy * fy)
-                // Phase perturbation preserves each tile's spectral magnitudes.
-                // Cover periods 8–32 px, taper to 6–48; never blur by damping.
-                let low = smooth((radius - 1 / 48.0) / (1 / 32.0 - 1 / 48.0))
-                let high = 1 - smooth((radius - 1 / 8.0) / (1 / 6.0 - 1 / 8.0))
-                band[y * side + x] = strength.phaseLimit * low * high
-            }
-        }
+        let kernel: PhaseKernel
+        switch strength { case .gentle: kernel = gentleKernel; case .balanced: kernel = balancedKernel; case .strong: kernel = strongKernel }
+        let window = kernel.window
         var real = [Float](repeating: 0, count: count)
         var imaginary = real
         // Ring buffers bound working memory independently of photo height.
@@ -190,26 +213,15 @@ enum PatternProcessor {
                     imaginary.withUnsafeMutableBufferPointer { im in
                         var split = DSPSplitComplex(realp: re.baseAddress!, imagp: im.baseAddress!)
                         vDSP_fft2d_zip(setup, &split, 1, side, 8, 8, FFTDirection(FFT_FORWARD))
-                        for y in 0..<side {
-                            for x in 0..<side {
-                                let i = y * side + x
-                                let partner = ((side - y) % side) * side + (side - x) % side
-                                if i == partner { re[i] = 0; im[i] = 0; continue }
-                                guard i < partner else { continue }
-                                // Smooth phase across adjacent bins prevents
-                                // cancellation when overlapping windows blend.
-                                // Independent random bin phases caused softening
-                                // even though individual FFT magnitudes survived.
-                                let sx = Float(x <= side / 2 ? x : x - side)
-                                let sy = Float(y <= side / 2 ? y : y - side)
-                                let direction = (0.8 * sx + 0.6 * sy) / max(1, sqrt(sx * sx + sy * sy))
-                                let angle = band[i] * direction
-                                let cosine = cos(angle) - 1, sine = sin(angle)
-                                let dr = re[i] * cosine - im[i] * sine
-                                let di = re[i] * sine + im[i] * cosine
-                                re[i] = dr; im[i] = di
-                                re[partner] = dr; im[partner] = -di
-                            }
+                        for i in [0, side / 2, count / 2, count / 2 + side / 2] { re[i] = 0; im[i] = 0 }
+                        // The same coefficients used in 0.7, cached once per
+                        // strength instead of evaluating trig for every tile.
+                        for rotation in kernel.rotations {
+                            let i = rotation.index
+                            let dr = re[i] * rotation.cosine - im[i] * rotation.sine
+                            let di = re[i] * rotation.sine + im[i] * rotation.cosine
+                            re[i] = dr; im[i] = di
+                            re[rotation.partner] = dr; im[rotation.partner] = -di
                         }
                         vDSP_fft2d_zip(setup, &split, 1, side, 8, 8, FFTDirection(FFT_INVERSE))
                     }

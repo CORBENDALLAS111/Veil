@@ -79,6 +79,21 @@ final class StudioFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["photoPickerButton"].exists)
     }
 
+    func testStandaloneUpscaleSelectionAndExport() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-video", "-ui-video-short", "-ui-dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
+        app.segmentedControls["videoMode"].buttons["Апскейл"].tap()
+        XCTAssertEqual(app.buttons["videoResolutionMenu"].label, "Апскейл: 1080p")
+        XCTAssertTrue(app.switches["smoothVideoBlocks"].exists)
+        app.buttons["processButton"].tap()
+        XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 180))
+        XCTAssertEqual(app.staticTexts["videoDimensions"].label, "1280 × 1920")
+        XCTAssertTrue(app.segmentedControls["videoComparison"].exists)
+        capture("10-upscaled-video")
+    }
+
     private func capture(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name

@@ -110,6 +110,7 @@ struct VideoCorrectionStabilizer {
 actor VideoProcessor {
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+    private var cachedUpscaler: VideoUpscaler?
 
     func copyImport(_ url: URL) throws -> URL { try VideoFiles.copy(url) }
 
@@ -151,8 +152,8 @@ actor VideoProcessor {
         }
     }
 
-    func process(_ video: ImportedVideo, mode: ProcessingMode, strength: ProcessingStrength,
-                 clarity: Bool = false, resolution: OutputResolution = .original,
+    func process(_ video: ImportedVideo, mode: VideoOperation, strength: ProcessingStrength,
+                 clarity: Bool = false, resolution: VideoResolution = .original, smoothBlocks: Bool = false,
                  progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }) async throws -> ProcessedVideo {
         try Task.checkCancellation()
         let started = Date()
@@ -162,15 +163,18 @@ actor VideoProcessor {
         let duration = try await asset.load(.duration)
         let transform = try await track.load(.preferredTransform)
         let descriptions = try await track.load(.formatDescriptions)
-        if mode == .pattern {
+        if mode != .metadata {
             guard !Self.isHDR(descriptions) else { throw VideoError.hdr }
             guard max(video.width, video.height) <= 3840, video.width * video.height <= 3840 * 2160 else { throw VideoError.dimensions }
         }
-        let requested = mode == .pattern ? resolution.dimensions(width: video.width, height: video.height) : (video.width, video.height)
+        let requested = mode != .metadata ? resolution.dimensions(width: video.width, height: video.height) : (video.width, video.height)
         // H.264 4:2:0 requires even dimensions. At most one padded edge pixel;
         // no aspect-ratio stretch of the filtered image.
-        let width = mode == .pattern ? (requested.0 + 1) / 2 * 2 : requested.0
-        let height = mode == .pattern ? (requested.1 + 1) / 2 * 2 : requested.1
+        let width = mode != .metadata ? (requested.0 + 1) / 2 * 2 : requested.0
+        let height = mode != .metadata ? (requested.1 + 1) / 2 * 2 : requested.1
+        let needsUpscale = mode != .metadata && (width != video.width || height != video.height || smoothBlocks)
+        if needsUpscale && cachedUpscaler == nil { cachedUpscaler = VideoUpscaler() }
+        nonisolated(unsafe) let frameUpscaler = needsUpscale ? cachedUpscaler : nil
         // AV track transforms use top-left video coordinates; Core Image uses
         // bottom-left coordinates. Conjugate by a vertical flip and normalize
         // the translated extent per frame below.
@@ -187,14 +191,15 @@ actor VideoProcessor {
                 VideoFiles.remove(outputURL)
             }
             context.clearCaches()
+            cachedUpscaler?.clearBuffers()
         }
         writer.metadata = []
-        let videoOutput = AVAssetReaderTrackOutput(track: track, outputSettings: mode == .pattern ? [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA] : nil)
+        let videoOutput = AVAssetReaderTrackOutput(track: track, outputSettings: mode != .metadata ? [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA] : nil)
         videoOutput.alwaysCopiesSampleData = false
         guard reader.canAdd(videoOutput) else { throw VideoError.unsupported }
         reader.add(videoOutput)
         let fps = max(1, min(120, Double(video.framesPerSecond > 0 ? video.framesPerSecond : 30)))
-        let settings: [String: Any]? = mode == .pattern ? [
+        let settings: [String: Any]? = mode != .metadata ? [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: width, AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [
@@ -213,10 +218,10 @@ actor VideoProcessor {
         videoInput.mediaTimeScale = try await track.load(.naturalTimeScale)
         guard writer.canAdd(videoInput) else { throw VideoError.unsupported }
         writer.add(videoInput)
-        let adaptor = mode == .pattern ? AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: [
+        let adaptor = mode != .metadata ? AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
-            kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:], kCVPixelBufferMetalCompatibilityKey as String: true
         ]) : nil
 
         var audio: [(output: AVAssetReaderTrackOutput, input: AVAssetWriterInput, finished: Bool)] = []
@@ -232,7 +237,7 @@ actor VideoProcessor {
         }
         guard writer.startWriting(), reader.startReading() else { throw VideoError.unsupported }
         writer.startSession(atSourceTime: .zero)
-        progress(0, mode == .pattern ? "Защита текста в кадрах…" : "Копирование дорожек…")
+        progress(0, mode == .pattern ? "Защита текста в кадрах…" : (mode == .upscale ? "Апскейл видео…" : "Копирование дорожек…"))
         var frames = 0, videoFinished = false
         var stabilizer = VideoCorrectionStabilizer()
         var lastActivity = Date()
@@ -267,25 +272,35 @@ actor VideoProcessor {
                         let encoded = try autoreleasepool {
                             let input = CIImage(cvPixelBuffer: frameBuffer).transformed(by: imageTransform)
                             let upright = input.transformed(by: CGAffineTransform(translationX: -input.extent.minX, y: -input.extent.minY))
-                            guard let image = context.createCGImage(upright, from: upright.extent.integral, format: .RGBA8, colorSpace: colorSpace)
-                            else { throw VideoError.read }
-                            let filtered = try PatternProcessor.process(image, strength: strength, clarity: clarity) { partial, _ in
-                                let value = min(0.96, base + span * partial * 0.9)
-                                progress(value, "Кадр \(frameNumber)")
+                            let processed: CIImage
+                            if mode == .pattern {
+                                guard let image = context.createCGImage(upright, from: upright.extent.integral, format: .RGBA8, colorSpace: colorSpace) else { throw VideoError.read }
+                                let source = PixelRaster.pixels(image)
+                                var pixels = source
+                                try PatternProcessor.processPixels(&pixels, image: image, strength: strength, clarity: clarity) { partial, _ in
+                                    let value = min(0.96, base + span * partial * 0.9)
+                                    progress(value, "Кадр \(frameNumber)")
+                                }
+                                stabilizer.apply(&pixels, source: source)
+                                processed = CIImage(cgImage: try PixelRaster.image(pixels, width: image.width, height: image.height))
+                            } else {
+                                // Upscale-only skips OCR, FFT, bitmap arrays
+                                // and the watermark correction entirely.
+                                processed = upright
                             }
-                            let source = PixelRaster.pixels(image)
-                            var pixels = PixelRaster.pixels(filtered)
-                            stabilizer.apply(&pixels, source: source)
-                            if requested.0 != image.width || requested.1 != image.height {
-                                pixels = try DetailResampler.resize(pixels, width: image.width, height: image.height, outputWidth: requested.0, outputHeight: requested.1)
-                            }
-                            let processed = try PixelRaster.image(pixels, width: requested.0, height: requested.1)
                             var encoded: CVPixelBuffer?
                             guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, framePool, &encoded) == kCVReturnSuccess,
                                   let encoded else { throw VideoError.write }
                             // Clamp only the possible one-pixel codec padding.
-                            context.render(CIImage(cgImage: processed).clampedToExtent(), to: encoded,
-                                           bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: colorSpace)
+                            if let frameUpscaler {
+                                let source = try frameUpscaler.buffer(width: video.width, height: video.height)
+                                context.render(processed, to: source, bounds: CGRect(x: 0, y: 0, width: video.width, height: video.height), colorSpace: colorSpace)
+                                try frameUpscaler.render(source, to: encoded, smoothBlocks: smoothBlocks,
+                                                         contentWidth: requested.0, contentHeight: requested.1)
+                            } else {
+                                context.render(processed.clampedToExtent(), to: encoded,
+                                               bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: colorSpace)
+                            }
                             // Describe the rendered RGB pixels explicitly so
                             // AVAssetWriter converts sRGB to the requested
                             // Rec.709 output once, rather than guessing gamma.

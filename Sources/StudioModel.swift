@@ -18,6 +18,11 @@ final class StudioModel {
     var resultPreview: UIImage?
     var strength: ProcessingStrength = .balanced
     var mode: ProcessingMode = .pattern
+    var videoMode: VideoOperation = .pattern
+    var videoResolution: VideoResolution = .original
+    var smoothVideoBlocks = true
+    var runsPattern: Bool { video != nil ? videoMode == .pattern : mode == .pattern }
+    var copiesMetadataOnly: Bool { video != nil ? videoMode == .metadata : mode == .metadata }
     var progress: Double = 0
     var workLabel = "Обработка…"
     var format: ExportFormat = .png
@@ -39,7 +44,7 @@ final class StudioModel {
 
     func configure() {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-ui-metadata") { mode = .metadata }
+        if ProcessInfo.processInfo.arguments.contains("-ui-metadata") { mode = .metadata; videoMode = .metadata }
         #endif
     }
 
@@ -85,7 +90,7 @@ final class StudioModel {
                 source = nil
                 video = loaded
                 originalPreview = UIImage(data: loaded.preview)
-                if !loaded.patternSupported { mode = .metadata }
+                if !loaded.patternSupported { videoMode = .metadata }
                 isWorking = false
                 isImporting = false
             } catch {
@@ -166,8 +171,9 @@ final class StudioModel {
     private func processVideo() {
         guard let video, !isWorking else { return }
         let id = operationID
-        let selectedStrength = strength, selectedMode = mode
-        let selectedClarity = clarity, selectedResolution = resolution
+        let selectedStrength = strength, selectedMode = videoMode
+        let selectedClarity = clarity, selectedResolution = videoResolution
+        let selectedSmoothing = smoothVideoBlocks && selectedResolution != .original
         isWorking = true
         progress = 0
         workLabel = "Подготовка видео…"
@@ -176,7 +182,7 @@ final class StudioModel {
             guard let self else { return }
             do {
                 let output = try await videoProcessor.process(video, mode: selectedMode, strength: selectedStrength,
-                                                               clarity: selectedClarity, resolution: selectedResolution) { [weak self] value, label in
+                                                               clarity: selectedClarity, resolution: selectedResolution, smoothBlocks: selectedSmoothing) { [weak self] value, label in
                     Task { @MainActor in
                         guard let self, id == self.operationID, self.isWorking else { return }
                         self.progress = max(self.progress, value)
@@ -280,7 +286,8 @@ final class StudioModel {
 
     #if DEBUG
     func loadVideoFixture() {
-        beginVideoImport { try await VideoFixture.make(rotated: true) }
+        let short = ProcessInfo.processInfo.arguments.contains("-ui-video-short")
+        beginVideoImport { try await VideoFixture.make(rotated: true, frameCount: short ? 2 : 12) }
     }
 
     func loadFixture() {

@@ -70,6 +70,12 @@ struct StudioView: View {
         }
         .onChange(of: model.strength) { _, _ in model.clearResult() }
         .onChange(of: model.mode) { _, _ in model.clearResult() }
+        .onChange(of: model.videoMode) { _, mode in
+            model.clearResult()
+            if mode == .upscale && model.videoResolution == .original { model.videoResolution = .fullHD }
+        }
+        .onChange(of: model.videoResolution) { _, _ in model.clearResult() }
+        .onChange(of: model.smoothVideoBlocks) { _, _ in model.clearResult() }
         .onChange(of: model.format) { _, _ in model.clearResult() }
         .onChange(of: model.clarity) { _, _ in model.clearResult() }
         .onChange(of: model.resolution) { _, _ in model.clearResult() }
@@ -136,7 +142,19 @@ struct StudioView: View {
                 } else if model.videoResult != nil {
                     Text("MOV").font(.caption).foregroundStyle(.secondary)
                 } else {
-                    if model.mode == .pattern {
+                    if model.video != nil && !model.copiesMetadataOnly {
+                        Menu {
+                            Picker("Апскейл", selection: $model.videoResolution) {
+                                ForEach(VideoResolution.allCases.filter { model.videoMode != .upscale || $0 != .original }) { size in Text(size.title).tag(size) }
+                            }
+                        } label: {
+                            HStack(spacing: 4) { Text(model.videoResolution.title); Image(systemName: "chevron.down") }
+                                .font(.caption.weight(.medium)).frame(minHeight: 44)
+                        }
+                        .disabled(model.isWorking)
+                        .accessibilityLabel("Апскейл: \(model.videoResolution.title)")
+                        .accessibilityIdentifier("videoResolutionMenu")
+                    } else if model.video == nil && model.mode == .pattern {
                         Menu {
                             Picker("Размер", selection: $model.resolution) {
                                 ForEach(OutputResolution.allCases) { size in Text(size.title).tag(size) }
@@ -150,7 +168,7 @@ struct StudioView: View {
                         .accessibilityIdentifier("resolutionMenu")
                     }
                     if model.video != nil {
-                        Text(model.mode == .pattern ? "MOV · H.264" : "MOV").font(.caption).foregroundStyle(.secondary)
+                        Text(model.copiesMetadataOnly ? "MOV" : "MOV · H.264").font(.caption).foregroundStyle(.secondary)
                     } else { Menu {
                         Picker("Формат", selection: $model.format) {
                             ForEach(ExportFormat.allCases) { format in Text(format.title).tag(format) }
@@ -185,16 +203,22 @@ struct StudioView: View {
                     .accessibilityLabel("Открыть SynthID Detector")
                 }
             } else {
-                Picker("Обработка", selection: $model.mode) {
-                    ForEach(ProcessingMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                            .disabled(mode == .pattern && model.video?.patternSupported == false)
+                if model.video != nil {
+                    Picker("Обработка видео", selection: $model.videoMode) {
+                        ForEach(VideoOperation.allCases) { mode in
+                            Text(mode.title).tag(mode).disabled(mode != .metadata && model.video?.patternSupported == false)
+                        }
                     }
+                    .pickerStyle(.segmented).disabled(model.isWorking)
+                    .accessibilityIdentifier("videoMode")
+                } else {
+                    Picker("Обработка", selection: $model.mode) {
+                        ForEach(ProcessingMode.allCases) { mode in Text(mode.title).tag(mode) }
+                    }
+                    .pickerStyle(.segmented).disabled(model.isWorking)
+                    .accessibilityIdentifier("processingMode")
                 }
-                .pickerStyle(.segmented)
-                .disabled(model.isWorking)
-                .accessibilityIdentifier("processingMode")
-                if model.mode == .pattern {
+                if model.runsPattern {
                     Picker("Сила обработки", selection: $model.strength) {
                         ForEach(ProcessingStrength.allCases) { strength in Text(strength.title).tag(strength) }
                     }
@@ -205,11 +229,19 @@ struct StudioView: View {
                         .font(.subheadline)
                         .disabled(model.isWorking)
                         .accessibilityIdentifier("clarityToggle")
-                    Text(model.resolution == .original ? "Без перерисовки · исходный размер" : "Без перерисовки · 4K по длинной стороне")
+                    Text(model.video != nil ? "Без перерисовки · защита текста" : (model.resolution == .original ? "Без перерисовки · исходный размер" : "Без перерисовки · 4K по длинной стороне"))
                         .font(.caption2).foregroundStyle(.secondary)
-                } else {
+                } else if model.copiesMetadataOnly {
                     Text(model.video != nil ? "Перезапись контейнера без изменения кадров и звука. SynthID может сохраниться." : "Удаляет метаданные. SynthID в пикселях может сохраниться.")
                         .font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    Text("Увеличение без дорисовки букв и деталей")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                if model.video != nil && !model.copiesMetadataOnly && model.videoResolution != .original {
+                    Toggle("Мягкое сглаживание блоков", isOn: $model.smoothVideoBlocks)
+                        .font(.subheadline).disabled(model.isWorking)
+                        .accessibilityIdentifier("smoothVideoBlocks")
                 }
                 if model.video != nil {
                     Text(model.video?.patternSupported == false ? "HDR: доступна очистка метаданных. Паттерн работает с SDR." : "Звук сохраняется · держите приложение открытым")
@@ -272,7 +304,7 @@ struct StudioView: View {
                         .disabled(model.isSaving)
                     } else if model.hasSource {
                         Button(action: model.process) {
-                            Label("Обработать", systemImage: model.mode == .pattern ? "slider.horizontal.3" : "document.badge.minus")
+                            Label("Обработать", systemImage: model.copiesMetadataOnly ? "document.badge.minus" : "slider.horizontal.3")
                                 .font(.headline).foregroundStyle(VeilStyle.onAccent)
                                 .frame(maxWidth: .infinity, minHeight: 28)
                         }
@@ -343,6 +375,8 @@ private struct AboutView: View {
                     Text("PNG сохраняет обработанные пиксели без потерь. JPEG добавляет сжатие и заменяет прозрачность белым фоном. Без исходных метаданных. SDR sRGB.")
                 }
                 Section("Видео") {
+                    Text("Апскейл: 1080p или 4K по длинной стороне, с сохранением пропорций. Работает отдельно или вместе с паттерном. GPU используется при доступности; нейросеть не перерисовывает текст и лица. Утраченные детали не восстанавливаются.")
+                    Text("Мягкое сглаживание блоков ограничено одним уровнем RGB и защищает контрастные границы. Апскейл не уменьшает исходный размер и не меняет частоту кадров.")
                     Text("MOV и MP4: покадровая обработка SDR до 4K без генеративной перерисовки. Небольшие изменения стабилизируются между соседними кадрами; отсутствие мерцания на любом видео не гарантируется. Звук и тайминги сохраняются.")
                     Text("Экспорт паттерна — MOV H.264 со сжатием; точные пиксели после кодирования не сохраняются. Метаданные — перезапись исходных видео- и аудиодорожек без перекодирования. HDR доступен только в этом режиме. Эффективность против SynthID в видео не подтверждена.")
                 }

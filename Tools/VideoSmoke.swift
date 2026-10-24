@@ -4,7 +4,10 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-@main struct VideoSmoke {
+#if !UPSCALE_SMOKE
+@main
+#endif
+struct VideoSmoke {
     static func main() async throws {
         let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -19,7 +22,7 @@ import UniformTypeIdentifiers
         let originalImage = try await firstImage(inputURL)
         try saveImage(originalImage, output.appendingPathComponent("original.png"))
         var reports: [[String: Any]] = []
-        for mode in ProcessingMode.allCases {
+        for mode in [VideoOperation.pattern, .metadata] {
             let result = try await processor.process(source, mode: mode, strength: .strong)
             defer { VideoFiles.remove(result.url) }
             let video = try await packets(result.url, .video)
