@@ -179,8 +179,8 @@ final class StudioModel {
                                                                clarity: selectedClarity, resolution: selectedResolution) { [weak self] value, label in
                     Task { @MainActor in
                         guard let self, id == self.operationID, self.isWorking else { return }
-                        self.progress = value
-                        self.workLabel = label
+                        self.progress = max(self.progress, value)
+                        self.workLabel = "\(label) · \(Int(self.progress * 100))%"
                     }
                 }
                 guard !Task.isCancelled, id == operationID else { VideoFiles.remove(output.url); return }

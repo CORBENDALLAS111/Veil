@@ -242,18 +242,24 @@ actor VideoProcessor {
                     guard pts.isValid, pts.seconds.isFinite else { throw VideoError.read }
                     if let adaptor {
                         guard let buffer = CMSampleBufferGetImageBuffer(sample), let pool = adaptor.pixelBufferPool else { throw VideoError.read }
+                        // Foundation's pool closure is synchronous, but its
+                        // pre-concurrency declaration lacks actor inheritance.
+                        // These borrowed references never leave this actor or
+                        // outlive the synchronous frame below.
+                        nonisolated(unsafe) let frameBuffer = buffer
+                        nonisolated(unsafe) let framePool = pool
+                        let sampleDuration = CMSampleBufferGetDuration(sample).seconds
+                        let frameNumber = frames + 1
+                        let base = max(0, pts.seconds / duration.seconds * 0.96)
+                        let span = (sampleDuration.isFinite && sampleDuration > 0 ? sampleDuration : 1 / fps) / duration.seconds * 0.96
                         let encoded = try autoreleasepool {
-                            let input = CIImage(cvPixelBuffer: buffer).transformed(by: transform)
+                            let input = CIImage(cvPixelBuffer: frameBuffer).transformed(by: transform)
                             let upright = input.transformed(by: CGAffineTransform(translationX: -input.extent.minX, y: -input.extent.minY))
                             guard let image = context.createCGImage(upright, from: upright.extent.integral, format: .RGBA8, colorSpace: colorSpace)
                             else { throw VideoError.read }
-                            let frameNumber = frames + 1
-                            let base = max(0, pts.seconds / duration.seconds * 0.96)
-                            let sampleDuration = CMSampleBufferGetDuration(sample).seconds
-                            let span = (sampleDuration.isFinite && sampleDuration > 0 ? sampleDuration : 1 / fps) / duration.seconds * 0.96
                             let filtered = try PatternProcessor.process(image, strength: strength, clarity: clarity) { partial, _ in
                                 let value = min(0.96, base + span * partial * 0.9)
-                                progress(value, "Кадр \(frameNumber) · \(Int(value * 100))%")
+                                progress(value, "Кадр \(frameNumber)")
                             }
                             let source = PixelRaster.pixels(image)
                             var pixels = PixelRaster.pixels(filtered)
@@ -263,7 +269,7 @@ actor VideoProcessor {
                             }
                             let processed = try PixelRaster.image(pixels, width: requested.0, height: requested.1)
                             var encoded: CVPixelBuffer?
-                            guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &encoded) == kCVReturnSuccess,
+                            guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, framePool, &encoded) == kCVReturnSuccess,
                                   let encoded else { throw VideoError.write }
                             // Clamp only the possible one-pixel codec padding.
                             context.render(CIImage(cgImage: processed).clampedToExtent(), to: encoded,
@@ -274,8 +280,10 @@ actor VideoProcessor {
                         guard adaptor.append(encoded, withPresentationTime: pts) else { throw VideoError.write }
                     } else if !videoInput.append(sample) { throw VideoError.write }
                     frames += 1
-                    let fraction = min(0.96, max(0, pts.seconds / duration.seconds * 0.96))
-                    progress(fraction, "Кадр \(frames) · \(Int(fraction * 100))%")
+                    let sampleDuration = CMSampleBufferGetDuration(sample).seconds
+                    let end = pts.seconds + (sampleDuration.isFinite && sampleDuration > 0 ? sampleDuration : 1 / fps)
+                    let fraction = min(0.96, max(0, end / duration.seconds * 0.96))
+                    progress(fraction, "Кадр \(frames)")
                     advanced = true
                 } else { videoFinished = true; videoInput.markAsFinished(); advanced = true }
             }

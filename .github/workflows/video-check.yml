@@ -1,0 +1,25 @@
+name: Native video diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  video:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+      - name: Compile and run generated video diagnostic
+        run: |
+          mkdir -p build/video-check
+          swiftc -O -DDEBUG -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Sources/Processing/VideoProcessor.swift Sources/VideoFixture.swift Tools/VideoSmoke.swift -o build/video-check/smoke
+          build/video-check/smoke build/video-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Veil-video-check
+          path: build/video-check/
+          retention-days: 14
