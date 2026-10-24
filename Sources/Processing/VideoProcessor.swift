@@ -110,7 +110,6 @@ struct VideoCorrectionStabilizer {
 actor VideoProcessor {
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-    private let videoColorSpace = CGColorSpace(name: CGColorSpace.itur_709)!
 
     func copyImport(_ url: URL) throws -> URL { try VideoFiles.copy(url) }
 
@@ -172,6 +171,11 @@ actor VideoProcessor {
         // no aspect-ratio stretch of the filtered image.
         let width = mode == .pattern ? (requested.0 + 1) / 2 * 2 : requested.0
         let height = mode == .pattern ? (requested.1 + 1) / 2 * 2 : requested.1
+        // AV track transforms use top-left video coordinates; Core Image uses
+        // bottom-left coordinates. Conjugate by a vertical flip and normalize
+        // the translated extent per frame below.
+        let imageTransform = CGAffineTransform(a: transform.a, b: -transform.b, c: -transform.c,
+                                               d: transform.d, tx: transform.tx, ty: -transform.ty)
         let reader = try AVAssetReader(asset: asset)
         let outputURL = try VideoFiles.destination()
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
@@ -261,7 +265,7 @@ actor VideoProcessor {
                         let base = max(0, pts.seconds / duration.seconds * 0.96)
                         let span = (sampleDuration.isFinite && sampleDuration > 0 ? sampleDuration : 1 / fps) / duration.seconds * 0.96
                         let encoded = try autoreleasepool {
-                            let input = CIImage(cvPixelBuffer: frameBuffer).transformed(by: transform)
+                            let input = CIImage(cvPixelBuffer: frameBuffer).transformed(by: imageTransform)
                             let upright = input.transformed(by: CGAffineTransform(translationX: -input.extent.minX, y: -input.extent.minY))
                             guard let image = context.createCGImage(upright, from: upright.extent.integral, format: .RGBA8, colorSpace: colorSpace)
                             else { throw VideoError.read }
@@ -281,7 +285,13 @@ actor VideoProcessor {
                                   let encoded else { throw VideoError.write }
                             // Clamp only the possible one-pixel codec padding.
                             context.render(CIImage(cgImage: processed).clampedToExtent(), to: encoded,
-                                           bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: videoColorSpace)
+                                           bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: colorSpace)
+                            // Describe the rendered RGB pixels explicitly so
+                            // AVAssetWriter converts sRGB to the requested
+                            // Rec.709 output once, rather than guessing gamma.
+                            CVBufferSetAttachment(encoded, kCVImageBufferCGColorSpaceKey, colorSpace, .shouldPropagate)
+                            CVBufferSetAttachment(encoded, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
+                            CVBufferSetAttachment(encoded, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_sRGB, .shouldPropagate)
                             return encoded
                         }
                         try Task.checkCancellation()
