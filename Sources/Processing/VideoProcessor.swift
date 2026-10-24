@@ -222,7 +222,6 @@ actor VideoProcessor {
             let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
             let input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil, sourceFormatHint: format)
             input.expectsMediaDataInRealTime = false
-            input.mediaTimeScale = try await track.load(.naturalTimeScale)
             guard reader.canAdd(output), writer.canAdd(input) else { throw VideoError.unsupported }
             reader.add(output); writer.add(input)
             audio.append((output, input, false))
@@ -242,8 +241,8 @@ actor VideoProcessor {
                     let pts = CMSampleBufferGetPresentationTimeStamp(sample)
                     guard pts.isValid, pts.seconds.isFinite else { throw VideoError.read }
                     if let adaptor {
-                        try autoreleasepool {
-                            guard let buffer = CMSampleBufferGetImageBuffer(sample), let pool = adaptor.pixelBufferPool else { throw VideoError.read }
+                        guard let buffer = CMSampleBufferGetImageBuffer(sample), let pool = adaptor.pixelBufferPool else { throw VideoError.read }
+                        let encoded = try autoreleasepool {
                             let input = CIImage(cvPixelBuffer: buffer).transformed(by: transform)
                             let upright = input.transformed(by: CGAffineTransform(translationX: -input.extent.minX, y: -input.extent.minY))
                             guard let image = context.createCGImage(upright, from: upright.extent.integral, format: .RGBA8, colorSpace: colorSpace)
@@ -269,9 +268,10 @@ actor VideoProcessor {
                             // Clamp only the possible one-pixel codec padding.
                             context.render(CIImage(cgImage: processed).clampedToExtent(), to: encoded,
                                            bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: videoColorSpace)
-                            try Task.checkCancellation()
-                            guard adaptor.append(encoded, withPresentationTime: pts) else { throw VideoError.write }
+                            return encoded
                         }
+                        try Task.checkCancellation()
+                        guard adaptor.append(encoded, withPresentationTime: pts) else { throw VideoError.write }
                     } else if !videoInput.append(sample) { throw VideoError.write }
                     frames += 1
                     let fraction = min(0.96, max(0, pts.seconds / duration.seconds * 0.96))
