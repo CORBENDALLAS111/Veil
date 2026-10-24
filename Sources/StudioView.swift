@@ -1,4 +1,5 @@
 import PhotosUI
+import AVKit
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -16,7 +17,7 @@ struct StudioView: View {
                 ScrollView {
                     Group {
                         if let preview = model.originalPreview {
-                            editor(preview, photoHeight: max(200, min(580, geometry.size.height - (model.result == nil ? 415 : 270))))
+                            editor(preview, photoHeight: max(200, min(580, geometry.size.height - (model.hasResult ? 270 : 415))))
                         } else {
                             emptyState.frame(minHeight: max(240, geometry.size.height - 130))
                         }
@@ -42,12 +43,12 @@ struct StudioView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    if model.source != nil {
+                    if model.hasSource {
                         Button {
                             model.reset()
                             selectedPhoto = nil
                         } label: { Image(systemName: "plus") }
-                            .accessibilityLabel("Другое фото")
+                            .accessibilityLabel("Другое фото или видео")
                             .accessibilityIdentifier("resetButton")
                             .disabled(model.isSaving)
                     }
@@ -61,7 +62,9 @@ struct StudioView: View {
         }
         .tint(VeilStyle.accent)
         .preferredColorScheme(previewScheme)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.result != nil)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.hasResult)
+        .onChange(of: model.isWorking) { _, working in UIApplication.shared.isIdleTimerDisabled = working }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .onChange(of: selectedPhoto) { _, item in
             if let item { model.select(item) }
         }
@@ -70,7 +73,7 @@ struct StudioView: View {
         .onChange(of: model.format) { _, _ in model.clearResult() }
         .onChange(of: model.clarity) { _, _ in model.clearResult() }
         .onChange(of: model.resolution) { _, _ in model.clearResult() }
-        .fileImporter(isPresented: $showsFiles, allowedContentTypes: [.image]) { result in
+        .fileImporter(isPresented: $showsFiles, allowedContentTypes: [.image, .movie]) { result in
             switch result {
             case .success(let url): model.selectFile(url)
             case .failure(let error): model.errorMessage = error.localizedDescription
@@ -90,6 +93,7 @@ struct StudioView: View {
             model.configure()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-ui-fixture") { model.loadFixture() }
+            if ProcessInfo.processInfo.arguments.contains("-ui-video") { model.loadVideoFixture() }
             #endif
         }
     }
@@ -103,8 +107,8 @@ struct StudioView: View {
                 .background(VeilStyle.accent.opacity(0.075), in: RoundedRectangle(cornerRadius: 36))
                 .accessibilityHidden(true)
             VStack(spacing: 8) {
-                Text("Добавьте фото").font(.title3.weight(.semibold))
-                Text("JPEG · PNG · HEIC · WebP").font(.caption).foregroundStyle(.secondary)
+                Text("Фото или видео").font(.title3.weight(.semibold))
+                Text("JPEG · PNG · HEIC · WebP · MOV · MP4").font(.caption).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity)
@@ -117,11 +121,20 @@ struct StudioView: View {
                     Text(verbatim: model.result.map { "\($0.width) × \($0.height)" } ?? "\(source.width) × \(source.height)")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         .accessibilityIdentifier("photoDimensions")
+                } else if let video = model.video {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(model.videoResult?.width ?? video.width) × \(model.videoResult?.height ?? video.height)")
+                            .accessibilityIdentifier("videoDimensions")
+                        Text("\(Int(video.duration) / 60):\(String(format: "%02d", Int(video.duration) % 60)) · \(Int(video.framesPerSecond.rounded())) fps")
+                    }
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if let result = model.result {
                     Text("\(Int64(result.data.count).formatted(.byteCount(style: .file))) · \(result.format.title)")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                } else if model.videoResult != nil {
+                    Text("MOV").font(.caption).foregroundStyle(.secondary)
                 } else {
                     if model.mode == .pattern {
                         Menu {
@@ -136,7 +149,9 @@ struct StudioView: View {
                         .accessibilityLabel("Размер: \(model.resolution.title)")
                         .accessibilityIdentifier("resolutionMenu")
                     }
-                    Menu {
+                    if model.video != nil {
+                        Text(model.mode == .pattern ? "MOV · H.264" : "MOV").font(.caption).foregroundStyle(.secondary)
+                    } else { Menu {
                         Picker("Формат", selection: $model.format) {
                             ForEach(ExportFormat.allCases) { format in Text(format.title).tag(format) }
                         }
@@ -146,13 +161,19 @@ struct StudioView: View {
                     }
                     .disabled(model.isWorking)
                     .accessibilityLabel("Формат экспорта: \(model.format.title)")
+                    }
                 }
             }
 
-            ComparisonView(original: preview, processed: model.resultPreview,
-                           maximumHeight: photoHeight, position: $model.comparison)
+            if let video = model.video {
+                MovieComparisonView(original: video.url, processed: model.videoResult?.url,
+                                    aspectRatio: CGFloat(video.width) / CGFloat(video.height), maximumHeight: photoHeight)
+            } else {
+                ComparisonView(original: preview, processed: model.resultPreview,
+                               maximumHeight: photoHeight, position: $model.comparison)
+            }
 
-            if model.result != nil {
+            if model.hasResult {
                 HStack(spacing: 12) {
                     Label("SynthID не проверен", systemImage: "info.circle")
                         .font(.caption).foregroundStyle(.secondary)
@@ -165,7 +186,10 @@ struct StudioView: View {
                 }
             } else {
                 Picker("Обработка", selection: $model.mode) {
-                    ForEach(ProcessingMode.allCases) { mode in Text(mode.title).tag(mode) }
+                    ForEach(ProcessingMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                            .disabled(mode == .pattern && model.video?.patternSupported == false)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .disabled(model.isWorking)
@@ -184,7 +208,11 @@ struct StudioView: View {
                     Text(model.resolution == .original ? "Без перерисовки · исходный размер" : "Без перерисовки · 4K по длинной стороне")
                         .font(.caption2).foregroundStyle(.secondary)
                 } else {
-                    Text("Удаляет метаданные. SynthID в пикселях может сохраниться.")
+                    Text(model.video != nil ? "Перезапись контейнера без изменения кадров и звука. SynthID может сохраниться." : "Удаляет метаданные. SynthID в пикселях может сохраниться.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                if model.video != nil {
+                    Text(model.video?.patternSupported == false ? "HDR: доступна очистка метаданных. Паттерн работает с SDR." : "Звук сохраняется · держите приложение открытым")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 if model.source?.hasAlpha == true && model.format == .jpeg {
@@ -212,7 +240,7 @@ struct StudioView: View {
                                 .accessibilityIdentifier("cancelButton")
                         }
                         .frame(minHeight: 54)
-                    } else if model.result != nil {
+                    } else if model.hasResult {
                         Button { Task { await model.prepareShare() } } label: {
                             Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28)
                         }
@@ -242,7 +270,7 @@ struct StudioView: View {
                         .accessibilityLabel("Изменить обработку")
                         .accessibilityIdentifier("editAgainButton")
                         .disabled(model.isSaving)
-                    } else if model.source != nil {
+                    } else if model.hasSource {
                         Button(action: model.process) {
                             Label("Обработать", systemImage: model.mode == .pattern ? "slider.horizontal.3" : "document.badge.minus")
                                 .font(.headline).foregroundStyle(VeilStyle.onAccent)
@@ -251,8 +279,8 @@ struct StudioView: View {
                         .modifier(VeilActionStyle(prominent: true))
                         .accessibilityIdentifier("processButton")
                     } else {
-                        PhotosPicker(selection: $selectedPhoto, matching: .images, preferredItemEncoding: .current) {
-                            Label("Выбрать фото", systemImage: "plus")
+                        PhotosPicker(selection: $selectedPhoto, matching: .any(of: [.images, .videos]), preferredItemEncoding: .current) {
+                            Label("Выбрать фото или видео", systemImage: "plus")
                                 .font(.headline).foregroundStyle(VeilStyle.onAccent)
                                 .frame(maxWidth: .infinity, minHeight: 28)
                         }
@@ -271,7 +299,7 @@ struct StudioView: View {
             if let message = model.saveMessage {
                 Text(message).font(.caption).foregroundStyle(.secondary)
                     .accessibilityIdentifier("saveConfirmation")
-            } else if model.result == nil && !model.isWorking {
+            } else if !model.hasResult && !model.isWorking {
                 Text("Экспериментальная обработка").font(.caption2).foregroundStyle(.secondary)
             }
         }
@@ -313,6 +341,10 @@ private struct AboutView: View {
                 }
                 Section("Экспорт") {
                     Text("PNG сохраняет обработанные пиксели без потерь. JPEG добавляет сжатие и заменяет прозрачность белым фоном. Без исходных метаданных. SDR sRGB.")
+                }
+                Section("Видео") {
+                    Text("MOV и MP4: покадровая обработка SDR до 4K без генеративной перерисовки. Небольшие изменения стабилизируются между соседними кадрами; отсутствие мерцания на любом видео не гарантируется. Звук и тайминги сохраняются.")
+                    Text("Экспорт паттерна — MOV H.264 со сжатием; точные пиксели после кодирования не сохраняются. Метаданные — перезапись исходных видео- и аудиодорожек без перекодирования. HDR доступен только в этом режиме. Эффективность против SynthID в видео не подтверждена.")
                 }
                 Section("Код") {
                     Link("GitHub", destination: URL(string: "https://github.com/CORBENDALLAS111/Veil")!)

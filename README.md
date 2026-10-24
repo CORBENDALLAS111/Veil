@@ -1,6 +1,6 @@
 # Veil
 
-Native iOS photo processing, SwiftUI, iOS 17+, Liquid Glass on iOS 26, Russian interface. Version 0.6 uses bounded non-generative phase processing, detail protection, optional subtle clarity and 4K interpolation. No model downloads, network processing, or generative dependencies are included in the app.
+Native iOS photo and video processing, SwiftUI, iOS 17+, Liquid Glass on iOS 26, Russian interface. Version 0.7 adds file-backed video processing to the bounded non-generative phase filter, detail protection, optional subtle clarity and 4K interpolation. No model downloads, network processing, or generative dependencies are included in the app.
 
 **SynthID removal is experimental and unverified.** Filtering a synthetic signal is not evidence of defeating the official detector. Protected image regions may retain the watermark. The app always displays “SynthID не проверен”.
 
@@ -22,6 +22,18 @@ PNG is the default and stores the filtered raster without lossy compression. JPE
 
 The separate Метаданные mode performs no frequency filtering. Both modes create a fresh image container without copying source EXIF/GPS/XMP/IPTC/C2PA. Metadata removal alone does not remove a pixel watermark.
 
+## Video
+
+Import MOV/MP4 from Photos or Files, preview before/after, save a new video to Photos or share its file. Imports use a copied file URL rather than loading the movie into a Data object (up to 2 GB). The app processes one decoded frame at a time and interleaves video/audio writes under encoder backpressure. Keep the app open; it prevents auto-lock while working. This is foreground processing, not an iOS background-export service.
+
+Pattern mode accepts a single SDR video track up to 3840 px on the long side and 8,294,400 pixels. It applies the same text-protected phase filter to each upright frame, with optional clarity and 4K interpolation. A fixed phase field avoids random per-frame seeds. A temporal stabilizer averages only the small correction, never source frames: it resets at motion over three luma levels, keeps newly protected pixels unchanged and never exceeds the current correction's sign/magnitude. It reduces correction flicker, but is not an optical-flow model or a guarantee of temporal quality on arbitrary motion. OCR runs on every frame; this can be slow on long or high-resolution clips.
+
+Pattern export is high-bitrate H.264 in MOV, SDR Rec.709, with source presentation timestamps and rotation baked into the pixels. H.264 is lossy, including chroma subsampling: exact protected-pixel guarantees apply **before video encoding**. Odd output dimensions get at most one padded edge pixel, without stretching. No frame-rate conversion or frame interpolation is applied. Optional 4K changes spatial dimensions only.
+
+Metadata mode remuxes original compressed video/audio samples into a new MOV without filtering or re-encoding, including HDR. It clears container/track metadata rather than copying source tags. Codec payloads are passed through, so metadata or watermarks embedded inside those payloads may remain. This is not a complete provenance eraser. Original compressed audio packets are passed through in both modes; unsupported tracks fail instead of silently muting. Captions, multiple video tracks and unreadable assets are rejected. Necessary codec/color/timing data remains. Partial output files are deleted on cancellation/failure; owned imports and results are removed on reset/replacement.
+
+**SynthID removal on video is unverified.** Image watermark heuristics are not evidence against a video detector, which can use temporal information. No visible-logo detector/remover or diffusion regeneration is included. The source review in [video research](docs/research/video-2026-10-24.md) explains the distinction.
+
 ## Build and checks
 
 On a Mac with Xcode 26.2 and XcodeGen:
@@ -33,10 +45,10 @@ xcodebuild build -project Veil.xcodeproj -scheme Veil -configuration Release -sd
 
 GitHub Actions independently builds the arm64 device app, runs unit/UI tests, and compiles a macOS diagnostic using the same processor. The diagnostic draws synthetic English/Russian text, runs real OCR before/after native and 4K processing, checks RGB limits, exact protected regions, the raster bridge and PNG round trips, and saves input/output/metrics. Unit tests check pattern changes without texture-energy loss, tile boundaries, edge preservation, tiny/odd dimensions, monotone scaling without overshoot, area reduction, alpha, clarity limits, metadata, orientation and cancellation. UI tests exercise clarity and actual 4K export. These checks do not measure SynthID removal or performance on a physical iPhone.
 
-The release workflow publishes an unsigned IPA only after all three jobs pass. Packaging validates arm64, the application bundle, absence of model payloads and ZIP integrity, and supplies SHA-256. External signing or a compatible container is required; no Apple signing keys are stored here.
+The release workflow publishes an unsigned IPA only after the build, pixel, video and simulator jobs pass. Packaging validates arm64, the application bundle, absence of model payloads and ZIP integrity, and supplies SHA-256. External signing or a compatible container is required; no Apple signing keys are stored here.
 
 ## Research and history
 
 [Non-generative baseline](docs/research/non-generative-0.5.md) describes scope and evidence. [Detail-preservation audit](docs/research/detail-preservation-2026-10-23.md) explains why SD 2.1 was unsuitable for lettering. [Earlier research](docs/research/README.md) distinguishes metadata, visible logos and invisible watermarks. Historical neural sources, tools and license notices remain for research, excluded from the app and release workflow. They are not evidence of current algorithm efficacy.
 
-No user photographs are uploaded or bundled. CI uses synthetic fixtures. No accounts, analytics or subscriptions. Saving/sharing requires user action; temporary sharing files are removed after dismissal. Independent project, unaffiliated with Google, Apple, OpenAI or removesynthid.io.
+No user photographs or videos are uploaded or bundled. Native CI checks use synthetic fixtures; the separately dispatched watermark benchmark uses pinned public images. No accounts, analytics or subscriptions. Saving/sharing requires user action; photo sharing copies are removed after dismissal, and video files remain available until reset/replacement. Independent project, unaffiliated with Google, Apple, OpenAI or removesynthid.io.
