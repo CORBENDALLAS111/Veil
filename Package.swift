@@ -11,7 +11,7 @@ let package = Package(
         .executableTarget(name: "VeilNeuralSmoke", dependencies: [.product(name: "StableDiffusion", package: "ml-stable-diffusion")],
                           path: ".", exclude: ["Tests", "UITests", "docs", "scripts", "Sources/Assets.xcassets", "Sources/Processing",
                                                "Sources/StudioModel.swift", "Sources/StudioView.swift", "Sources/VeilApp.swift",
-                                               "Sources/Design.swift", "Sources/VeilAppDelegate.swift", "Sources/ComparisonView.swift", "Sources/PrivacyInfo.xcprivacy",
+                                               "Sources/Design.swift", "Sources/VeilAppDelegate.swift", "Sources/ComparisonView.swift", "Sources/MovieComparisonView.swift", "Sources/VideoFixture.swift", "Sources/PrivacyInfo.xcprivacy",
                                                "README.md", "project.yml", "Sources/Licenses", "build", "Tools/DownloadSmoke.swift"],
                           sources: ["Sources/Neural/NeuralModelStore.swift", "Sources/Neural/ModelDownloads.swift", "Sources/Neural/NeuralRegenerator.swift", "Tools/NeuralSmoke.swift"],
                           resources: [.copy("Sources/Neural/NeuralManifest.json"), .copy("Sources/Neural/BundledVAE")])

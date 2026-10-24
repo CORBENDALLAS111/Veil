@@ -60,6 +60,25 @@ final class StudioFlowTests: XCTestCase {
         capture("07-dark-result")
     }
 
+    func testVideoProcessingAndComparison() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-video", "-ui-dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.descendants(matching: .any)["videoPreview"].exists)
+        XCTAssertEqual(app.staticTexts["videoDimensions"].label, "128 × 192")
+        capture("08-video-ready")
+        app.buttons["processButton"].tap()
+        XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 120))
+        XCTAssertTrue(app.segmentedControls["videoComparison"].exists)
+        app.segmentedControls["videoComparison"].buttons["До"].tap()
+        app.segmentedControls["videoComparison"].buttons["После"].tap()
+        XCTAssertTrue(app.buttons["shareButton"].isHittable)
+        capture("09-video-result")
+        app.buttons["resetButton"].tap()
+        XCTAssertTrue(app.buttons["photoPickerButton"].exists)
+    }
+
     private func capture(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
