@@ -1,6 +1,6 @@
 # Veil
 
-Native iOS photo and video processing, SwiftUI, iOS 17+, Liquid Glass on iOS 26, Russian interface. Version 0.7 adds file-backed video processing to the bounded non-generative phase filter, detail protection, optional subtle clarity and 4K interpolation. No model downloads, network processing, or generative dependencies are included in the app.
+Native iOS photo and video processing, SwiftUI, iOS 17+, Liquid Glass on iOS 26, Russian interface. Version 0.8 adds standalone GPU video upscaling and optimizes the existing pattern pipeline. No model downloads, network processing, or generative dependencies are included in the app.
 
 **SynthID removal is experimental and unverified.** Filtering a synthetic signal is not evidence of defeating the official detector. Protected image regions may retain the watermark. The app always displays “SynthID не проверен”.
 
@@ -23,6 +23,14 @@ PNG is the default and stores the filtered raster without lossy compression. JPE
 The separate Метаданные mode performs no frequency filtering. Both modes create a fresh image container without copying source EXIF/GPS/XMP/IPTC/C2PA. Metadata removal alone does not remove a pixel watermark.
 
 ## Video
+
+**Апскейл** is a separate video mode. Choose **1080p** or **4K** in the size menu. It can also run after pattern processing in one export. An already larger source is retained; the upscaler does not downsize it. Portrait aspect ratios and source frame timestamps are retained. Upscale-only skips the FFT filter, OCR and CPU bitmap arrays, so previously processed clips can be enlarged without applying the pattern filter again.
+
+The Metal backend performs two separable monotone cubic passes directly between BGRA IOSurfaces, with a float intermediate and local-range clamps. It matches the CPU reference to within one channel level on the 720p calibration fixture. No diffusion, super-resolution network, invented texture, optical-flow warp or frame interpolation is used. A CPU reference path is available when Metal initialization is unavailable. Upscaling smooths the source pixel grid; it cannot restore unreadable text or missing information. Source compression defects can remain.
+
+**Мягкое сглаживание блоков** optionally adjusts low-contrast source neighborhoods by at most one RGB level before enlargement. Neighborhoods with a luma range of 12+ levels are frozen. It is a gentle spatial cleanup, not a codec-specific deblocking/restoration model. Low-contrast lettering may change by one level. Pattern-mode exact-pixel text checks occur before cleanup, resizing and lossy video encoding. GPU buffers/pools are cleared between exports while compiled pipelines are retained.
+
+The original filter precomputes its unchanged phase coefficients once per strength instead of repeating trigonometry for each tile. Video retains the decoded source pixels and processes a mutable copy, removing two additional CGImage/bitmap readbacks. The released 0.7 processor is compiled alongside the current one in the native diagnostic: all three strengths produced byte-identical filtered 720p calibration rasters. [Measurements and limitations](docs/research/upscale-2026-10-24.md) distinguish scaling-kernel speed from full export speed.
 
 Import MOV/MP4 from Photos or Files, preview before/after, save a new video to Photos or share its file. Imports use a copied file URL rather than loading the movie into a Data object (up to 2 GB). The app processes one decoded frame at a time and interleaves video/audio writes under encoder backpressure. Keep the app open; it prevents auto-lock while working. This is foreground processing, not an iOS background-export service.
 

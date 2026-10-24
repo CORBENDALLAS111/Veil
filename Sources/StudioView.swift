@@ -129,7 +129,7 @@ struct StudioView: View {
                         .accessibilityIdentifier("photoDimensions")
                 } else if let video = model.video {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("\(model.videoResult?.width ?? video.width) × \(model.videoResult?.height ?? video.height)")
+                        Text(verbatim: "\(model.videoResult?.width ?? video.width) × \(model.videoResult?.height ?? video.height)")
                             .accessibilityIdentifier("videoDimensions")
                         Text("\(Int(video.duration) / 60):\(String(format: "%02d", Int(video.duration) % 60)) · \(Int(video.framesPerSecond.rounded())) fps")
                     }
