@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
         let inputURL = try await VideoFixture.make(rotated: true, variableTiming: true)
         defer { VideoFiles.remove(inputURL) }
         let source = try await processor.load(inputURL)
+        try FileManager.default.copyItem(at: inputURL, to: output.appendingPathComponent("original.mov"))
         try require(source.width == 128 && source.height == 192 && source.audioTracks == 1, "Invalid portrait fixture")
         let originalVideo = try await packets(inputURL, .video)
         let originalAudio = try await packets(inputURL, .audio)
@@ -25,6 +26,15 @@ import UniformTypeIdentifiers
             let audio = try await packets(result.url, .audio)
             let asset = AVURLAsset(url: result.url)
             let duration = try await asset.load(.duration).seconds
+            let raw: [String: Any] = ["mode": mode.rawValue, "processedFrames": result.frames,
+                "sourceVideoPTS": originalVideo.times, "outputVideoPTS": video.times,
+                "sourceAudioPTS": originalAudio.times, "outputAudioPTS": audio.times,
+                "sourceAudioSHA256": originalAudio.digest, "outputAudioSHA256": audio.digest,
+                "sourceDuration": source.duration, "outputDuration": duration]
+            let diagnostic = try JSONSerialization.data(withJSONObject: raw, options: [.prettyPrinted, .sortedKeys])
+            try diagnostic.write(to: output.appendingPathComponent("raw-\(mode.rawValue).json"))
+            FileHandle.standardError.write(diagnostic)
+            try FileManager.default.copyItem(at: result.url, to: output.appendingPathComponent("portrait-vfr-\(mode.rawValue).mov"))
             try require(video.times.count == originalVideo.times.count && result.frames == originalVideo.times.count, "Dropped video frames")
             try require(zip(video.times, originalVideo.times).allSatisfy { abs($0 - $1) < 0.0001 }, "Changed video timestamps")
             try require(audio.digest == originalAudio.digest, "Audio packets changed")
@@ -42,7 +52,6 @@ import UniformTypeIdentifiers
             if mode == .metadata { try require(video.digest == originalVideo.digest, "Metadata mode re-encoded video") }
             let recognized = try PatternProcessor.recognizeText(image).map(\.text)
             try require(recognized.joined().contains("2026"), "Lettering unreadable after video export")
-            try FileManager.default.copyItem(at: result.url, to: output.appendingPathComponent("portrait-vfr-\(mode.rawValue).mov"))
             reports.append(["mode": mode.rawValue, "frames": result.frames, "videoPTSUnchanged": true,
                             "audioPacketsUnchanged": true, "audioPTSUnchanged": true, "containerMetadataEmpty": true,
                             "width": image.width, "height": image.height, "duration": duration,

@@ -73,7 +73,9 @@ enum VideoFixture {
 
     private static func tone() throws -> CMSampleBuffer {
         let rate = 48_000, count = 48_000
-        let samples = (0..<count).map { Float(0.1 * sin(2 * .pi * 440 * Double($0) / Double(rate))) }
+        let angularFrequency: Double = 2.0 * Double.pi * 440.0 / Double(rate)
+        var samples = [Float](repeating: 0, count: count)
+        for index in samples.indices { samples[index] = Float(0.1 * sin(angularFrequency * Double(index))) }
         var description = AudioStreamBasicDescription(mSampleRate: Double(rate), mFormatID: kAudioFormatLinearPCM,
             mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: 4, mFramesPerPacket: 1,
             mBytesPerFrame: 4, mChannelsPerFrame: 1, mBitsPerChannel: 32, mReserved: 0)
