@@ -57,11 +57,33 @@ import UniformTypeIdentifiers
             }
         }
         precondition(changed > 10000 && maxDelta <= 10 && exactProtected > 1000)
+        var rippleBytes = first
+        let rippleStart = Date()
+        try RippleReducer.apply(&rippleBytes, width: width, height: height, protectedRects: before.map(\.rect))
+        let rippleSeconds = Date().timeIntervalSince(rippleStart)
+        let rippleOutput = try PixelRaster.image(rippleBytes, width: width, height: height)
+        var rippleBefore = 0.0, rippleAfter = 0.0, rippleSamples = 0
+        for y in 0..<height { for x in 0..<width {
+            let p = (y * width + x) * 4
+            let protected = before.contains { $0.rect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: x, y: y)) }
+            for c in 0..<3 {
+                precondition(abs(Int(rippleBytes[p + c]) - Int(first[p + c])) <= 3)
+                if protected { precondition(rippleBytes[p + c] == first[p + c], "Ripple changed protected lettering") }
+            }
+            if x > 1100 && x < width - 32 && y > 32 && y < height - 32 {
+                rippleBefore += pow(Double(first[p]) - 128, 2)
+                rippleAfter += pow(Double(rippleBytes[p]) - 128, 2)
+                rippleSamples += 1
+            }
+        } }
+        precondition(rippleAfter < rippleBefore * 0.85, "Visible calibration ripple was not reduced")
+        let rippleText = try PatternProcessor.recognizeText(rippleOutput)
+        for region in before { precondition(rippleText.contains { $0.text == region.text }, "Ripple changed recognized lettering") }
         // Verify source raster orientation, alpha and channel order separately.
         let asymmetric: [UInt8] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 128, 200, 100, 50, 255]
         let bridge = PixelRaster.pixels(try PixelRaster.image(asymmetric, width: 2, height: 2))
         for i in asymmetric.indices { precondition(abs(Int(bridge[i]) - Int(asymmetric[i])) <= 1, "Raster bridge changed layout") }
-        for (name, image) in [("input.png", input), ("output.png", output)] {
+        for (name, image) in [("input.png", input), ("output.png", output), ("ripple-output.png", rippleOutput)] {
             let target = directory.appendingPathComponent(name)
             let destination = CGImageDestinationCreateWithURL(target as CFURL, UTType.png.identifier as CFString, 1, nil)!
             CGImageDestinationAddImage(destination, image, nil)
@@ -83,7 +105,10 @@ import UniformTypeIdentifiers
             "changedChannels": changed, "protectedChannelsExact": exactProtected,
             "seconds": elapsed, "textBefore": before.map(\.text), "textAfter": after.map(\.text),
             "synthIDVerified": false, "fourKWidth": enhanced.width, "fourKHeight": enhanced.height,
-            "text4K": text4K.map(\.text)]
+            "text4K": text4K.map(\.text), "rippleSeconds": rippleSeconds,
+            "rippleRMSBefore": sqrt(rippleBefore / Double(rippleSamples)),
+            "rippleRMSAfter": sqrt(rippleAfter / Double(rippleSamples)),
+            "rippleText": rippleText.map(\.text)]
         try JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             .write(to: directory.appendingPathComponent("metrics.json"))
         print("PIXEL CHECK PASSED: \(width)×\(height), max RGB delta \(maxDelta), text \(before.map(\.text)), \(elapsed)s")

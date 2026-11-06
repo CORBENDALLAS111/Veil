@@ -55,6 +55,7 @@ struct ComparisonHandleSurface: ViewModifier {
     }
 }
 struct StudioBackground: View {
+    var animate = true
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -73,8 +74,10 @@ struct StudioBackground: View {
                         .rotationEffect(.degrees(-35)).offset(x: proxy.size.width * 0.28, y: proxy.size.height * 0.27).blur(radius: 70)
                 }
             }
-            .onAppear { if !reduceMotion { drift = true } }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 12).repeatForever(autoreverses: true), value: drift)
+            .onAppear { drift = animate && !reduceMotion }
+            .onChange(of: animate) { _, active in drift = active && !reduceMotion }
+            .onChange(of: reduceMotion) { _, reduced in drift = animate && !reduced }
+            .animation(reduceMotion || !animate ? nil : .easeInOut(duration: 12).repeatForever(autoreverses: true), value: drift)
         }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
     }
 }

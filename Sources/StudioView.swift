@@ -38,7 +38,7 @@ struct StudioView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .background { StudioBackground() }
+            .background { StudioBackground(animate: !model.hasSource && !model.isWorking) }
             .navigationTitle("Veil")
             .toolbarBackground(.hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
@@ -116,7 +116,7 @@ struct StudioView: View {
             HomeSculpture()
             VStack(spacing: 13) {
                 Text("Кадр. Чище.")
-                    .font(.system(size: 39, weight: .semibold, design: .rounded)).tracking(-1.7)
+                    .font(.largeTitle.weight(.semibold)).fontDesign(.rounded).tracking(-1.3)
                     .minimumScaleFactor(0.7).lineLimit(1)
                 Text("Фото и видео. Мягкая обработка до 4K.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)

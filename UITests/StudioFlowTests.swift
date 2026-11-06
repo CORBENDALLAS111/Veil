@@ -69,6 +69,7 @@ final class StudioFlowTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["videoPreview"].exists)
         XCTAssertEqual(app.staticTexts["videoDimensions"].label, "128 × 192")
         capture("08-video-ready")
+        app.switches["rippleToggle"].tap()
         app.buttons["processButton"].tap()
         XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 120))
         XCTAssertTrue(app.segmentedControls["videoComparison"].exists)
