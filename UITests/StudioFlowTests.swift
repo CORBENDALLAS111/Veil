@@ -121,7 +121,9 @@ final class StudioFlowTests: XCTestCase {
             app.buttons["processButton"].tap()
             XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 60))
             app.buttons["saveButton"].tap()
-            XCTAssertTrue(app.descendants(matching: .any)["systemExportSheet"].waitForExistence(timeout: 15), app.debugDescription)
+            let saveToFiles = app.descendants(matching: .any).matching(
+                NSPredicate(format: "label == %@ OR label == %@", "Save to Files", "Сохранить в Файлы")).firstMatch
+            XCTAssertTrue(saveToFiles.waitForExistence(timeout: 15), app.debugDescription)
             XCTAssertEqual(app.state, .runningForeground)
             XCTAssertFalse(app.staticTexts["saveConfirmation"].exists)
             capture(fixture == "-ui-fixture" ? "13-container-photo-export" : "14-container-video-export")

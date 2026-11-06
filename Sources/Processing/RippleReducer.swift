@@ -54,13 +54,21 @@ enum RippleReducer {
                             let fx = Float(min(x, side - x)) / Float(side), fy = Float(min(y, side - y)) / Float(side)
                             let radius = sqrt(fx * fx + fy * fy)
                             guard i < partner, radius > 1 / 48.0, radius < 0.45, power[i] > 4096 else { continue }
-                            var localMaximum: Float = 0, background: Float = 0, samples: Float = 0
-                            for dy in -4...4 { for dx in -4...4 where dx != 0 || dy != 0 {
-                                let n = ((y + dy + side) % side) * side + (x + dx + side) % side
-                                if abs(dx) <= 1 && abs(dy) <= 1 { localMaximum = max(localMaximum, power[n]) }
-                                else if abs(dx) >= 3 || abs(dy) >= 3 { background += power[n]; samples += 1 }
+                            // Reject non-maxima before the much larger background
+                            // neighborhood. The immutable spectrum makes this
+                            // equivalent to the previous full maximum scan.
+                            var isPeak = true
+                            neighborhood: for dy in -1...1 { for dx in -1...1 where dx != 0 || dy != 0 {
+                                let n = ((y + dy + side) & (side - 1)) * side + ((x + dx + side) & (side - 1))
+                                if power[n] > power[i] { isPeak = false; break neighborhood }
                             } }
-                            guard power[i] >= localMaximum, power[i] > 24 * max(1, background / samples) else { continue }
+                            guard isPeak else { continue }
+                            var background: Float = 0, samples: Float = 0
+                            for dy in -4...4 { for dx in -4...4 where abs(dx) >= 3 || abs(dy) >= 3 {
+                                let n = ((y + dy + side) & (side - 1)) * side + ((x + dx + side) & (side - 1))
+                                background += power[n]; samples += 1
+                            } }
+                            guard power[i] > 24 * max(1, background / samples) else { continue }
                             peaks.append((i, power[i]))
                         } }
                         peaks.sort { $0.1 > $1.1 }
