@@ -32,7 +32,7 @@ targets:
         CFBundleVersion: '11'
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
-        NSPhotoLibraryUsageDescription: 'Veil ��������� ������������ ���� � ����� � ��������� �� ������ �������.'
+        NSPhotoLibraryUsageDescription: 'Veil сохраняет обработанные фото и видео в медиатеку по вашему запросу.'
         NSPhotoLibraryAddUsageDescription: 'Veil сохраняет обработанные фото и видео как новые файлы. Оригиналы остаются в медиатеке.'
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
