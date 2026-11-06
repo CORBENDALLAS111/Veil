@@ -1,8 +1,16 @@
+import Darwin
 import CoreGraphics
 import CoreText
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+
+private func check(_ condition: @autoclosure () -> Bool, _ message: String = "Pixel check failed") {
+    guard condition() else {
+        FileHandle.standardError.write(Data(("PIXEL CHECK FAILED: " + message + "\n").utf8))
+        exit(1)
+    }
+}
 
 @main enum PixelSmoke {
     static func main() async throws {
@@ -35,12 +43,12 @@ import UniformTypeIdentifiers
         }
         let input = try PixelRaster.image(bytes, width: width, height: height)
         let before = try PatternProcessor.recognizeText(input)
-        precondition(before.contains(where: { $0.text.contains("0123456789") }), "Real OCR did not recognize fixture text")
-        precondition(before.contains(where: { $0.text.contains("TEXT") }), "Real OCR missed the smaller text")
+        check(before.contains(where: { $0.text.contains("0123456789") }), "Real OCR did not recognize fixture text")
+        check(before.contains(where: { $0.text.contains("TEXT") }), "Real OCR missed the smaller text")
         let start = Date()
         let output = try PatternProcessor.process(input, strength: .strong) { _, _ in }
         let elapsed = Date().timeIntervalSince(start)
-        precondition(output.width == width && output.height == height && width > 1536)
+        check(output.width == width && output.height == height && width > 1536)
         let first = PixelRaster.pixels(input), last = PixelRaster.pixels(output)
         var maxDelta = 0, changed = 0, exactProtected = 0
         for y in 0..<height {
@@ -51,39 +59,64 @@ import UniformTypeIdentifiers
                     let delta = abs(Int(first[p + c]) - Int(last[p + c]))
                     maxDelta = max(maxDelta, delta)
                     if delta > 0 { changed += 1 }
-                    if protected { precondition(delta == 0, "Recognized text region changed"); exactProtected += 1 }
+                    if protected { check(delta == 0, "Recognized text region changed"); exactProtected += 1 }
                 }
-                precondition(first[p + 3] == last[p + 3])
+                check(first[p + 3] == last[p + 3])
             }
         }
-        precondition(changed > 10000 && maxDelta <= 10 && exactProtected > 1000)
-        // Verify source raster orientation, alpha and channel order separately.
-        let asymmetric: [UInt8] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 128, 200, 100, 50, 255]
-        let bridge = PixelRaster.pixels(try PixelRaster.image(asymmetric, width: 2, height: 2))
-        for i in asymmetric.indices { precondition(abs(Int(bridge[i]) - Int(asymmetric[i])) <= 1, "Raster bridge changed layout") }
-        for (name, image) in [("input.png", input), ("output.png", output)] {
+        check(changed > 10000 && maxDelta <= 10 && exactProtected > 1000)
+        var rippleBytes = first
+        let rippleStart = Date()
+        try RippleReducer.apply(&rippleBytes, width: width, height: height, protectedRects: before.map(\.rect))
+        let rippleSeconds = Date().timeIntervalSince(rippleStart)
+        let rippleOutput = try PixelRaster.image(rippleBytes, width: width, height: height)
+        for (name, image) in [("input.png", input), ("output.png", output), ("ripple-output.png", rippleOutput)] {
             let target = directory.appendingPathComponent(name)
             let destination = CGImageDestinationCreateWithURL(target as CFURL, UTType.png.identifier as CFString, 1, nil)!
             CGImageDestinationAddImage(destination, image, nil)
-            precondition(CGImageDestinationFinalize(destination))
+            check(CGImageDestinationFinalize(destination))
             let source = CGImageSourceCreateWithURL(target as CFURL, nil)!
             let readback = CGImageSourceCreateImageAtIndex(source, 0, nil)!
-            precondition(PixelRaster.pixels(readback) == PixelRaster.pixels(image), "PNG must round trip losslessly")
+            check(PixelRaster.pixels(readback) == PixelRaster.pixels(image), "PNG must round trip losslessly")
         }
+        var rippleBefore = 0.0, rippleAfter = 0.0, rippleSamples = 0
+        for y in 0..<height { for x in 0..<width {
+            let p = (y * width + x) * 4
+            let protected = before.contains { $0.rect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: x, y: y)) }
+            for c in 0..<3 {
+                check(abs(Int(rippleBytes[p + c]) - Int(first[p + c])) <= 3)
+                if protected { check(rippleBytes[p + c] == first[p + c], "Ripple changed protected lettering") }
+            }
+            if x > 1100 && x < width - 32 && y > 32 && y < height - 32 {
+                rippleBefore += pow(Double(first[p]) - 128, 2)
+                rippleAfter += pow(Double(rippleBytes[p]) - 128, 2)
+                rippleSamples += 1
+            }
+        } }
+        check(rippleAfter < rippleBefore * 0.85, "Visible calibration ripple was not reduced: energy \(rippleBefore) -> \(rippleAfter)")
+        let rippleText = try PatternProcessor.recognizeText(rippleOutput)
+        for region in before { check(rippleText.contains { $0.text == region.text }, "Ripple changed recognized lettering") }
+        // Verify source raster orientation, alpha and channel order separately.
+        let asymmetric: [UInt8] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 128, 200, 100, 50, 255]
+        let bridge = PixelRaster.pixels(try PixelRaster.image(asymmetric, width: 2, height: 2))
+        for i in asymmetric.indices { check(abs(Int(bridge[i]) - Int(asymmetric[i])) <= 1, "Raster bridge changed layout") }
         let after = try PatternProcessor.recognizeText(output)
         let enhanced = try PatternProcessor.process(input, strength: .balanced, clarity: true, resolution: .fourK) { _, _ in }
-        precondition(enhanced.width == 3840 && enhanced.height == 1495, "4K must preserve aspect ratio")
+        check(enhanced.width == 3840 && enhanced.height == 1495, "4K must preserve aspect ratio")
         let text4K = try PatternProcessor.recognizeText(enhanced)
-        for region in before { precondition(text4K.contains { $0.text == region.text }, "4K changed recognized lettering") }
+        for region in before { check(text4K.contains { $0.text == region.text }, "4K changed recognized lettering") }
         let image4K = directory.appendingPathComponent("output-4K.png")
         let destination4K = CGImageDestinationCreateWithURL(image4K as CFURL, UTType.png.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(destination4K, enhanced, nil)
-        precondition(CGImageDestinationFinalize(destination4K))
+        check(CGImageDestinationFinalize(destination4K))
         let metrics: [String: Any] = ["width": width, "height": height, "maxRGBDelta": maxDelta,
             "changedChannels": changed, "protectedChannelsExact": exactProtected,
             "seconds": elapsed, "textBefore": before.map(\.text), "textAfter": after.map(\.text),
             "synthIDVerified": false, "fourKWidth": enhanced.width, "fourKHeight": enhanced.height,
-            "text4K": text4K.map(\.text)]
+            "text4K": text4K.map(\.text), "rippleSeconds": rippleSeconds,
+            "rippleRMSBefore": sqrt(rippleBefore / Double(rippleSamples)),
+            "rippleRMSAfter": sqrt(rippleAfter / Double(rippleSamples)),
+            "rippleText": rippleText.map(\.text)]
         try JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             .write(to: directory.appendingPathComponent("metrics.json"))
         print("PIXEL CHECK PASSED: \(width)×\(height), max RGB delta \(maxDelta), text \(before.map(\.text)), \(elapsed)s")

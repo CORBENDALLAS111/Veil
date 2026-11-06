@@ -21,7 +21,7 @@ struct ComparisonView: View {
                             }
                         Rectangle().fill(.white).frame(width: 1.5)
                             .offset(x: geometry.size.width * position)
-                        Image(systemName: "chevron.left.chevron.right")
+                        LucideIcon(name: "chevrons-left-right", size: 17)
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(VeilStyle.ink)
                             .frame(width: 44, height: 44)

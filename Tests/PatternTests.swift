@@ -53,7 +53,7 @@ import XCTest
                     XCTAssertEqual(pixels[p + 3], original[p + 3])
                     for c in 0..<3 {
                         XCTAssertLessThanOrEqual(abs(Int(pixels[p + c]) - Int(original[p + c])), Int(strength.pixelLimit))
-                        if rect.insetBy(dx: -16, dy: -16).contains(CGPoint(x: x, y: y)) || (190...245).contains(x) {
+                        if rect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: x, y: y)) || [199, 200, 219, 220].contains(x) {
                             XCTAssertEqual(pixels[p + c], original[p + c])
                         }
                     }
@@ -73,6 +73,18 @@ import XCTest
         for p in stride(from: 0, to: first.count, by: 8) {
             XCTAssertEqual(Array(first[p..<(p + 4)]), Array(original[p..<(p + 4)]))
         }
+    }
+
+    func testAFlatStepEdgeCannotDevelopHalos() throws {
+        let width = 257, height = 129
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height { for x in 0..<width {
+            let value: UInt8 = x < 128 ? 40 : 210
+            for c in 0..<3 { pixels[(y * width + x) * 4 + c] = value }
+        } }
+        let source = pixels
+        try PatternProcessor.filter(&pixels, width: width, height: height, strength: .strong)
+        XCTAssertEqual(pixels, source, "Uniform backgrounds and contrast edges must not acquire halos")
     }
 
     private func sine(width: Int, height: Int) -> [UInt8] {

@@ -115,7 +115,7 @@ actor PhotoProcessor {
     }
 
     func process(_ photo: ImportedPhoto, strength: ProcessingStrength, format: ExportFormat,
-                 clarity: Bool = false, resolution: OutputResolution = .original,
+                 clarity: Bool = false, resolution: OutputResolution = .original, reduceRipple: Bool = false,
                  progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }) throws -> ProcessedPhoto {
         try Task.checkCancellation()
         let start = Date()
@@ -123,7 +123,7 @@ actor PhotoProcessor {
         let input = try orientedImage(photo.data)
         guard let image = context.createCGImage(input, from: input.extent.integral, format: .RGBA8, colorSpace: colorSpace)
         else { throw ProcessingError.invalidImage }
-        let result = try PatternProcessor.process(image, strength: strength, clarity: clarity, resolution: resolution, progress: progress)
+        let result = try PatternProcessor.process(image, strength: strength, clarity: clarity, resolution: resolution, reduceRipple: reduceRipple, progress: progress)
         try Task.checkCancellation()
         progress(0.98, "Сохранение…")
         let encoded = try exportImage(result, format: format)

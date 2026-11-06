@@ -10,8 +10,11 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: '1,2'
-    MARKETING_VERSION: '0.6.0'
-    CURRENT_PROJECT_VERSION: '8'
+    MARKETING_VERSION: '0.9.0'
+    CURRENT_PROJECT_VERSION: '11'
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: -O
 targets:
   Veil:
     type: application
@@ -28,11 +31,12 @@ targets:
       path: build/Info.plist
       properties:
         CFBundleDisplayName: Veil
-        CFBundleShortVersionString: '0.6.0'
-        CFBundleVersion: '8'
+        CFBundleShortVersionString: '0.9.0'
+        CFBundleVersion: '11'
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
-        NSPhotoLibraryAddUsageDescription: 'Veil сохраняет обработанное изображение как новое фото. Оригинал остаётся в медиатеке.'
+        NSPhotoLibraryUsageDescription: 'Veil сохраняет обработанные фото и видео в медиатеку по вашему запросу.'
+        NSPhotoLibraryAddUsageDescription: 'Veil сохраняет обработанные фото и видео как новые файлы. Оригиналы остаются в медиатеке.'
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]

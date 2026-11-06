@@ -1,21 +1,31 @@
 import Foundation
 import Observation
-import Photos
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 @Observable @MainActor
 final class StudioModel {
     var source: ImportedPhoto?
     var result: ProcessedPhoto?
+    var video: ImportedVideo?
+    var videoResult: ProcessedVideo?
+    var hasSource: Bool { source != nil || video != nil }
+    var hasResult: Bool { result != nil || videoResult != nil }
     var originalPreview: UIImage?
     var resultPreview: UIImage?
     var strength: ProcessingStrength = .balanced
     var mode: ProcessingMode = .pattern
+    var videoMode: VideoOperation = .pattern
+    var videoResolution: VideoResolution = .original
+    var smoothVideoBlocks = true
+    var runsPattern: Bool { video != nil ? videoMode == .pattern : mode == .pattern }
+    var copiesMetadataOnly: Bool { video != nil ? videoMode == .metadata : mode == .metadata }
     var progress: Double = 0
     var workLabel = "Обработка…"
     var format: ExportFormat = .png
+    var reduceRipple = false
     var clarity = false
     var resolution: OutputResolution = .original
     var isWorking = false
@@ -27,17 +37,25 @@ final class StudioModel {
     var shareURL: URL?
 
     @ObservationIgnored private let processor = PhotoProcessor()
+    @ObservationIgnored private let videoProcessor = VideoProcessor()
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var operationID = UUID()
     @ObservationIgnored private var exportedURLs: [URL] = []
 
     func configure() {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-ui-metadata") { mode = .metadata }
+        if ProcessInfo.processInfo.arguments.contains("-ui-metadata") { mode = .metadata; videoMode = .metadata }
         #endif
     }
 
     func select(_ item: PhotosPickerItem) {
+        if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+            beginVideoImport {
+                guard let movie = try await item.loadTransferable(type: ImportedMovieFile.self) else { throw VideoError.invalid }
+                return movie.url
+            }
+            return
+        }
         beginImport {
             guard let data = try await item.loadTransferable(type: Data.self) else { throw ProcessingError.invalidImage }
             return data
@@ -45,7 +63,41 @@ final class StudioModel {
     }
 
     func selectFile(_ url: URL) {
+        if UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true {
+            beginVideoImport { try await self.videoProcessor.copyImport(url) }
+            return
+        }
         beginImport { try await self.processor.readFile(url) }
+    }
+
+    private func beginVideoImport(_ read: @escaping @MainActor () async throws -> URL) {
+        cancel()
+        let id = operationID
+        isWorking = true
+        isImporting = true
+        operation = Task { [weak self] in
+            guard let self else { return }
+            var imported: URL?
+            do {
+                let url = try await read()
+                imported = url
+                try Task.checkCancellation()
+                let loaded = try await videoProcessor.load(url)
+                try Task.checkCancellation()
+                guard id == operationID else { VideoFiles.remove(url); return }
+                clearResult()
+                VideoFiles.remove(video?.url)
+                source = nil
+                video = loaded
+                originalPreview = UIImage(data: loaded.preview)
+                if !loaded.patternSupported { videoMode = .metadata }
+                isWorking = false
+                isImporting = false
+            } catch {
+                VideoFiles.remove(imported)
+                finish(error, id: id)
+            }
+        }
     }
 
     private func beginImport(_ read: @escaping @MainActor () async throws -> Data) {
@@ -61,6 +113,8 @@ final class StudioModel {
                 let photo = try await processor.load(data)
                 try Task.checkCancellation()
                 guard id == operationID else { return }
+                VideoFiles.remove(video?.url)
+                video = nil
                 source = photo
                 originalPreview = UIImage(data: photo.preview)
                 clearResult()
@@ -73,12 +127,14 @@ final class StudioModel {
     }
 
     func process() {
+        if video != nil { processVideo(); return }
         guard let source, !isWorking else { return }
         let id = operationID
         let selectedStrength = strength
         let selectedFormat = format
         let selectedMode = mode
         let selectedClarity = clarity
+        let selectedRipple = reduceRipple
         let selectedResolution = resolution
         isWorking = true
         progress = 0
@@ -91,7 +147,7 @@ final class StudioModel {
                 let output: ProcessedPhoto
                 if selectedMode == .pattern {
                     output = try await processor.process(source, strength: selectedStrength, format: selectedFormat,
-                                                         clarity: selectedClarity, resolution: selectedResolution) { [weak self] value, label in
+                                                         clarity: selectedClarity, resolution: selectedResolution, reduceRipple: selectedRipple) { [weak self] value, label in
                         Task { @MainActor in
                             guard let self, id == self.operationID else { return }
                             self.progress = value
@@ -113,6 +169,35 @@ final class StudioModel {
         }
     }
 
+    private func processVideo() {
+        guard let video, !isWorking else { return }
+        let id = operationID
+        let selectedStrength = strength, selectedMode = videoMode
+        let selectedClarity = clarity, selectedResolution = videoResolution
+        let selectedSmoothing = smoothVideoBlocks && selectedResolution != .original
+        let selectedRipple = reduceRipple
+        isWorking = true
+        progress = 0
+        workLabel = "Подготовка видео…"
+        clearResult()
+        operation = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let output = try await videoProcessor.process(video, mode: selectedMode, strength: selectedStrength,
+                                                               clarity: selectedClarity, resolution: selectedResolution, smoothBlocks: selectedSmoothing, reduceRipple: selectedRipple) { [weak self] value, label in
+                    Task { @MainActor in
+                        guard let self, id == self.operationID, self.isWorking else { return }
+                        self.progress = max(self.progress, value)
+                        self.workLabel = "\(label) · \(Int(self.progress * 100))%"
+                    }
+                }
+                guard !Task.isCancelled, id == operationID else { VideoFiles.remove(output.url); return }
+                videoResult = output
+                isWorking = false
+            } catch { finish(error, id: id) }
+        }
+    }
+
     func cancel() {
         operation?.cancel()
         operation = nil
@@ -122,8 +207,11 @@ final class StudioModel {
     }
 
     func reset() {
+        guard !isSaving else { return }
         cancel()
         source = nil
+        VideoFiles.remove(video?.url)
+        video = nil
         originalPreview = nil
         clearResult()
         cleanupExports()
@@ -131,6 +219,9 @@ final class StudioModel {
     }
 
     func clearResult() {
+        guard !isSaving else { return }
+        VideoFiles.remove(videoResult?.url)
+        videoResult = nil
         result = nil
         resultPreview = nil
         shareURL = nil
@@ -138,31 +229,42 @@ final class StudioModel {
     }
 
     func save() async {
-        guard let result, !isSaving else { return }
+        guard hasResult, !isSaving else { return }
         isSaving = true
         defer { isSaving = false }
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard status == .authorized || status == .limited else {
-            errorMessage = "Разрешите добавление фото в Настройках → Veil → Фото. Или экспортируйте файл через «Поделиться»."
-            return
-        }
         do {
-            try await PHPhotoLibrary.shared().performChanges {
-                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: result.data, options: nil)
+            if ExportEnvironment.usesSystemExport {
+                try await stageShare()
+                return
             }
-            saveMessage = "Новое фото сохранено"
+            if let output = videoResult {
+                try await PhotoLibraryWriter.save(url: output.url, media: .video)
+                saveMessage = "Новое видео сохранено"
+            } else if let result {
+                let url = try await processor.writeExport(result)
+                defer { try? FileManager.default.removeItem(at: url) }
+                try await PhotoLibraryWriter.save(url: url, media: .photo)
+                saveMessage = "Новое фото сохранено"
+            }
         } catch {
-            errorMessage = "Не удалось сохранить фото: \(error.localizedDescription)"
+            errorMessage = error.localizedDescription
         }
     }
 
     func prepareShare() async {
+        guard hasResult, !isSaving, shareURL == nil else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do { try await stageShare() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    private func stageShare() async throws {
+        if let videoResult { shareURL = videoResult.url; return }
         guard let result else { return }
-        do {
-            let url = try await processor.writeExport(result)
-            exportedURLs.append(url)
-            shareURL = url
-        } catch { errorMessage = error.localizedDescription }
+        let url = try await processor.writeExport(result)
+        exportedURLs.append(url)
+        shareURL = url
     }
 
     func cleanupExports() {
@@ -179,6 +281,11 @@ final class StudioModel {
     }
 
     #if DEBUG
+    func loadVideoFixture() {
+        let short = ProcessInfo.processInfo.arguments.contains("-ui-video-short")
+        beginVideoImport { try await VideoFixture.make(rotated: true, frameCount: short ? 2 : 12) }
+    }
+
     func loadFixture() {
         beginImport { FixturePhoto.make() }
     }

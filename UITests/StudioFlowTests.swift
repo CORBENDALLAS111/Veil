@@ -23,6 +23,7 @@ final class StudioFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Без перерисовки · исходный размер"].exists)
         capture("03-photo-ready")
         XCTAssertTrue(app.switches["clarityToggle"].exists)
+        app.switches["rippleToggle"].tap()
         app.switches["clarityToggle"].tap()
         app.buttons["resolutionMenu"].tap()
         app.buttons["4K"].tap()
@@ -33,14 +34,14 @@ final class StudioFlowTests: XCTestCase {
         app.sliders["comparisonSlider"].adjust(toNormalizedSliderPosition: 0.75)
         capture("04-result")
         let scroll = app.scrollViews["studioScroll"]
-        if !app.staticTexts["verificationStatus"].isHittable {
+        if !app.descendants(matching: .any)["verificationStatus"].isHittable {
             scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.65))
                 .press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.2)))
         }
-        XCTAssertTrue(app.staticTexts["verificationStatus"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["verificationStatus"].isHittable)
+        XCTAssertTrue(app.descendants(matching: .any)["verificationStatus"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["verificationStatus"].isHittable)
         XCTAssertTrue(app.buttons["editAgainButton"].isHittable)
-        XCTAssertEqual(app.staticTexts["verificationStatus"].label, "SynthID не проверен")
+        XCTAssertEqual(app.descendants(matching: .any)["verificationStatus"].label, "SynthID не проверен")
         capture("05-result-details")
         app.buttons["editAgainButton"].tap()
         XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 5))
@@ -58,6 +59,84 @@ final class StudioFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 45))
         XCTAssertTrue(app.buttons["shareButton"].isHittable)
         capture("07-dark-result")
+    }
+
+    func testVideoProcessingAndComparison() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-video", "-ui-video-short", "-ui-dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.descendants(matching: .any)["videoPreview"].exists)
+        XCTAssertEqual(app.staticTexts["videoDimensions"].label, "128 × 192")
+        capture("08-video-ready")
+        app.switches["rippleToggle"].tap()
+        app.buttons["processButton"].tap()
+        XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 120))
+        XCTAssertTrue(app.segmentedControls["videoComparison"].exists)
+        app.segmentedControls["videoComparison"].buttons["До"].tap()
+        app.segmentedControls["videoComparison"].buttons["После"].tap()
+        XCTAssertTrue(app.buttons["shareButton"].isHittable)
+        capture("09-video-result")
+        app.buttons["resetButton"].tap()
+        XCTAssertTrue(app.buttons["photoPickerButton"].exists)
+    }
+
+    func testStandaloneUpscaleSelectionAndExport() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-video", "-ui-video-short", "-ui-dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
+        app.segmentedControls["videoMode"].buttons["Апскейл"].tap()
+        XCTAssertEqual(app.buttons["videoResolutionMenu"].label, "Апскейл: 1080p")
+        XCTAssertTrue(app.switches["smoothVideoBlocks"].exists)
+        app.buttons["processButton"].tap()
+        XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 180))
+        XCTAssertEqual(app.staticTexts["videoDimensions"].label, "1280 × 1920")
+        XCTAssertTrue(app.segmentedControls["videoComparison"].exists)
+        capture("10-upscaled-video")
+    }
+
+    func testPhotoAndVideoSaveOnPhotoKitQueue() {
+        for fixture in ["-ui-fixture", "-ui-video"] {
+            let app = XCUIApplication()
+            app.launchArguments = [fixture, "-ui-video-short", "-ui-metadata", "-ui-dark"]
+            app.launch()
+            XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
+            app.buttons["processButton"].tap()
+            XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 60))
+            app.buttons["saveButton"].tap()
+            XCTAssertTrue(app.staticTexts["saveConfirmation"].waitForExistence(timeout: 30), app.debugDescription)
+            XCTAssertEqual(app.state, .runningForeground)
+            capture(fixture == "-ui-fixture" ? "11-photo-saved" : "12-video-saved")
+            app.terminate()
+        }
+    }
+
+    func testContainerSaveUsesSystemExportForPhotoAndVideo() {
+        for fixture in ["-ui-fixture", "-ui-video"] {
+            let app = XCUIApplication()
+            app.launchArguments = [fixture, "-ui-video-short", "-ui-container", "-ui-metadata", "-ui-dark"]
+            app.launch()
+            XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
+            app.buttons["processButton"].tap()
+            XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 60))
+            app.buttons["saveButton"].tap()
+            let saveToFiles = app.descendants(matching: .any).matching(
+                NSPredicate(format: "label == %@ OR label == %@", "Save to Files", "Сохранить в Файлы")).firstMatch
+            XCTAssertTrue(saveToFiles.waitForExistence(timeout: 15), app.debugDescription)
+            XCTAssertEqual(app.state, .runningForeground)
+            XCTAssertFalse(app.staticTexts["saveConfirmation"].exists)
+            capture(fixture == "-ui-fixture" ? "13-container-photo-export" : "14-container-video-export")
+            app.terminate()
+        }
+    }
+
+    func testDarkHome() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["photoPickerButton"].waitForExistence(timeout: 10))
+        capture("15-dark-home")
     }
 
     private func capture(_ name: String) {
