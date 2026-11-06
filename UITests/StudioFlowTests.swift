@@ -23,6 +23,7 @@ final class StudioFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Без перерисовки · исходный размер"].exists)
         capture("03-photo-ready")
         XCTAssertTrue(app.switches["clarityToggle"].exists)
+        app.switches["rippleToggle"].tap()
         app.switches["clarityToggle"].tap()
         app.buttons["resolutionMenu"].tap()
         app.buttons["4K"].tap()
@@ -92,6 +93,47 @@ final class StudioFlowTests: XCTestCase {
         XCTAssertEqual(app.staticTexts["videoDimensions"].label, "1280 × 1920")
         XCTAssertTrue(app.segmentedControls["videoComparison"].exists)
         capture("10-upscaled-video")
+    }
+
+    func testPhotoAndVideoSaveOnPhotoKitQueue() {
+        for fixture in ["-ui-fixture", "-ui-video"] {
+            let app = XCUIApplication()
+            app.launchArguments = [fixture, "-ui-video-short", "-ui-metadata", "-ui-dark"]
+            app.launch()
+            XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
+            app.buttons["processButton"].tap()
+            XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 60))
+            app.buttons["saveButton"].tap()
+            XCTAssertTrue(app.staticTexts["saveConfirmation"].waitForExistence(timeout: 30), app.debugDescription)
+            XCTAssertEqual(app.state, .runningForeground)
+            capture(fixture == "-ui-fixture" ? "11-photo-saved" : "12-video-saved")
+            app.terminate()
+        }
+    }
+
+    func testContainerSaveUsesSystemExportForPhotoAndVideo() {
+        for fixture in ["-ui-fixture", "-ui-video"] {
+            let app = XCUIApplication()
+            app.launchArguments = [fixture, "-ui-video-short", "-ui-container", "-ui-metadata", "-ui-dark"]
+            app.launch()
+            XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
+            app.buttons["processButton"].tap()
+            XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 60))
+            app.buttons["saveButton"].tap()
+            XCTAssertTrue(app.otherElements["systemExportSheet"].waitForExistence(timeout: 15), app.debugDescription)
+            XCTAssertEqual(app.state, .runningForeground)
+            XCTAssertFalse(app.staticTexts["saveConfirmation"].exists)
+            capture(fixture == "-ui-fixture" ? "13-container-photo-export" : "14-container-video-export")
+            app.terminate()
+        }
+    }
+
+    func testDarkHome() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-dark"]
+        app.launch()
+        XCTAssertTrue(app.buttons["photoPickerButton"].waitForExistence(timeout: 10))
+        capture("15-dark-home")
     }
 
     private func capture(_ name: String) {

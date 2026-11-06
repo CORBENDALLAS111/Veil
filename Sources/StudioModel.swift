@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import Photos
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -26,6 +25,7 @@ final class StudioModel {
     var progress: Double = 0
     var workLabel = "Обработка…"
     var format: ExportFormat = .png
+    var reduceRipple = false
     var clarity = false
     var resolution: OutputResolution = .original
     var isWorking = false
@@ -134,6 +134,7 @@ final class StudioModel {
         let selectedFormat = format
         let selectedMode = mode
         let selectedClarity = clarity
+        let selectedRipple = reduceRipple
         let selectedResolution = resolution
         isWorking = true
         progress = 0
@@ -146,7 +147,7 @@ final class StudioModel {
                 let output: ProcessedPhoto
                 if selectedMode == .pattern {
                     output = try await processor.process(source, strength: selectedStrength, format: selectedFormat,
-                                                         clarity: selectedClarity, resolution: selectedResolution) { [weak self] value, label in
+                                                         clarity: selectedClarity, resolution: selectedResolution, reduceRipple: selectedRipple) { [weak self] value, label in
                         Task { @MainActor in
                             guard let self, id == self.operationID else { return }
                             self.progress = value
@@ -174,6 +175,7 @@ final class StudioModel {
         let selectedStrength = strength, selectedMode = videoMode
         let selectedClarity = clarity, selectedResolution = videoResolution
         let selectedSmoothing = smoothVideoBlocks && selectedResolution != .original
+        let selectedRipple = reduceRipple
         isWorking = true
         progress = 0
         workLabel = "Подготовка видео…"
@@ -182,7 +184,7 @@ final class StudioModel {
             guard let self else { return }
             do {
                 let output = try await videoProcessor.process(video, mode: selectedMode, strength: selectedStrength,
-                                                               clarity: selectedClarity, resolution: selectedResolution, smoothBlocks: selectedSmoothing) { [weak self] value, label in
+                                                               clarity: selectedClarity, resolution: selectedResolution, smoothBlocks: selectedSmoothing, reduceRipple: selectedRipple) { [weak self] value, label in
                     Task { @MainActor in
                         guard let self, id == self.operationID, self.isWorking else { return }
                         self.progress = max(self.progress, value)
@@ -205,6 +207,7 @@ final class StudioModel {
     }
 
     func reset() {
+        guard !isSaving else { return }
         cancel()
         source = nil
         VideoFiles.remove(video?.url)
@@ -216,6 +219,7 @@ final class StudioModel {
     }
 
     func clearResult() {
+        guard !isSaving else { return }
         VideoFiles.remove(videoResult?.url)
         videoResult = nil
         result = nil
@@ -225,50 +229,42 @@ final class StudioModel {
     }
 
     func save() async {
-        if videoResult != nil { await saveVideo(); return }
-        guard let result, !isSaving else { return }
+        guard hasResult, !isSaving else { return }
         isSaving = true
         defer { isSaving = false }
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard status == .authorized || status == .limited else {
-            errorMessage = "Разрешите добавление фото в Настройках → Veil → Фото. Или экспортируйте файл через «Поделиться»."
-            return
-        }
         do {
-            try await PHPhotoLibrary.shared().performChanges {
-                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: result.data, options: nil)
+            if ExportEnvironment.usesSystemExport {
+                try await stageShare()
+                return
             }
-            saveMessage = "Новое фото сохранено"
+            if let output = videoResult {
+                try await PhotoLibraryWriter.save(url: output.url, media: .video)
+                saveMessage = "Новое видео сохранено"
+            } else if let result {
+                let url = try await processor.writeExport(result)
+                defer { try? FileManager.default.removeItem(at: url) }
+                try await PhotoLibraryWriter.save(url: url, media: .photo)
+                saveMessage = "Новое фото сохранено"
+            }
         } catch {
-            errorMessage = "Не удалось сохранить фото: \(error.localizedDescription)"
+            errorMessage = error.localizedDescription
         }
-    }
-
-    private func saveVideo() async {
-        guard let output = videoResult, !isSaving else { return }
-        isSaving = true
-        defer { isSaving = false }
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard status == .authorized || status == .limited else {
-            errorMessage = "Разрешите добавление видео в Настройках → Veil → Фото. Или используйте «Поделиться»."
-            return
-        }
-        do {
-            try await PHPhotoLibrary.shared().performChanges {
-                PHAssetCreationRequest.forAsset().addResource(with: .video, fileURL: output.url, options: nil)
-            }
-            saveMessage = "Новое видео сохранено"
-        } catch { errorMessage = "Не удалось сохранить видео: \(error.localizedDescription)" }
     }
 
     func prepareShare() async {
+        guard hasResult, !isSaving, shareURL == nil else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do { try await stageShare() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    private func stageShare() async throws {
         if let videoResult { shareURL = videoResult.url; return }
         guard let result else { return }
-        do {
-            let url = try await processor.writeExport(result)
-            exportedURLs.append(url)
-            shareURL = url
-        } catch { errorMessage = error.localizedDescription }
+        let url = try await processor.writeExport(result)
+        exportedURLs.append(url)
+        shareURL = url
     }
 
     func cleanupExports() {

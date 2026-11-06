@@ -41,7 +41,7 @@ jobs:
       - name: Check full resolution filtering and real OCR on synthetic text
         run: |
           mkdir -p build/pixel-check
-          swiftc -O -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Tools/PixelSmoke.swift -o build/pixel-check/smoke
+          swiftc -O -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/RippleReducer.swift Sources/Processing/DetailResampler.swift Tools/PixelSmoke.swift -o build/pixel-check/smoke
           build/pixel-check/smoke build/pixel-check
       - uses: actions/upload-artifact@v4
         if: always()
@@ -91,7 +91,7 @@ jobs:
       - name: Native video, audio passthrough, timing and rotation checks
         run: |
           mkdir -p build/video-check
-          swiftc -O -DDEBUG -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Sources/Processing/VideoUpscaler.swift Sources/Processing/VideoProcessor.swift Sources/VideoFixture.swift Tools/VideoSmoke.swift -o build/video-check/smoke
+          swiftc -O -DDEBUG -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/RippleReducer.swift Sources/Processing/DetailResampler.swift Sources/Processing/VideoUpscaler.swift Sources/Processing/VideoProcessor.swift Sources/VideoFixture.swift Tools/VideoSmoke.swift -o build/video-check/smoke
           build/video-check/smoke build/video-check
       - uses: actions/upload-artifact@v4
         if: always()
@@ -111,7 +111,7 @@ jobs:
         run: |
           git fetch --depth=1 origin dd70bf6333ab2ea0bf7eb04e5d1fe4239cf00f26
           python3 scripts/performance_baseline.py
-          swiftc -O -DDEBUG -DUPSCALE_SMOKE -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/DetailResampler.swift Sources/Processing/VideoUpscaler.swift Sources/Processing/VideoProcessor.swift Sources/VideoFixture.swift build/upscale-check/BaselinePatternProcessor.swift build/upscale-check/BaselineVideoProcessor.swift Tools/VideoSmoke.swift Tools/UpscaleSmoke.swift -o build/upscale-check/smoke
+          swiftc -O -DDEBUG -DUPSCALE_SMOKE -swift-version 6 -parse-as-library Sources/Processing/PhotoProcessor.swift Sources/Processing/PixelRaster.swift Sources/Processing/PatternProcessor.swift Sources/Processing/GentleClarity.swift Sources/Processing/RippleReducer.swift Sources/Processing/DetailResampler.swift Sources/Processing/VideoUpscaler.swift Sources/Processing/VideoProcessor.swift Sources/VideoFixture.swift build/upscale-check/BaselinePatternProcessor.swift build/upscale-check/BaselineVideoProcessor.swift Tools/VideoSmoke.swift Tools/UpscaleSmoke.swift -o build/upscale-check/smoke
       - name: Compare 720p to 1080p and 4K, text, audio, timing and performance
         run: build/upscale-check/smoke build/upscale-check
       - uses: actions/upload-artifact@v4
@@ -141,6 +141,13 @@ jobs:
       - name: Choose and boot iPhone simulator
         id: simulator
         run: python3 scripts/ci_simulator.py
+      - name: Grant add-only Photos access for real save regression tests
+        env:
+          DESTINATION: ${{ steps.simulator.outputs.destination }}
+        run: |
+          DEVICE_ID="${DESTINATION##*id=}"
+          xcrun simctl install "$DEVICE_ID" build/simulator/Build/Products/Debug-iphonesimulator/Veil.app
+          xcrun simctl privacy "$DEVICE_ID" grant photos-add io.github.corbendallas111.veil
       - name: Unit tests and native UI screenshots
         env:
           DESTINATION: ${{ steps.simulator.outputs.destination }}

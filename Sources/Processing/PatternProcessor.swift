@@ -36,10 +36,10 @@ enum PatternProcessor {
     }
 
     static func process(_ image: CGImage, strength: ProcessingStrength, clarity: Bool = false,
-                        resolution: OutputResolution = .original,
+                        resolution: OutputResolution = .original, reduceRipple: Bool = false,
                         progress: @Sendable (Double, String) -> Void) throws -> CGImage {
         var bytes = PixelRaster.pixels(image)
-        try processPixels(&bytes, image: image, strength: strength, clarity: clarity, progress: progress)
+        try processPixels(&bytes, image: image, strength: strength, clarity: clarity, reduceRipple: reduceRipple, progress: progress)
         let size = resolution.dimensions(width: image.width, height: image.height)
         if size.width != image.width || size.height != image.height {
             progress(0.72, "Масштабирование 4K…")
@@ -54,7 +54,7 @@ enum PatternProcessor {
     /// Video can keep the decoded source for temporal protection without two
     /// extra CGImage/bitmap readbacks. Photo rendering uses the same path.
     static func processPixels(_ bytes: inout [UInt8], image: CGImage, strength: ProcessingStrength,
-                              clarity: Bool = false, progress: @Sendable (Double, String) -> Void = { _, _ in }) throws {
+                              clarity: Bool = false, reduceRipple: Bool = false, progress: @Sendable (Double, String) -> Void = { _, _ in }) throws {
         progress(0.02, "Защита текста…")
         // Fail closed if Vision fails: never silently process unprotected text.
         let regions = try recognizeText(image)
@@ -65,6 +65,10 @@ enum PatternProcessor {
         if clarity {
             progress(0.68, "Мягкая чёткость…")
             try GentleClarity.apply(&bytes, width: image.width, height: image.height, protectedRects: regions.map(\.rect))
+        }
+        if reduceRipple {
+            progress(0.70, "Убираем рябь…")
+            try RippleReducer.apply(&bytes, width: image.width, height: image.height, protectedRects: regions.map(\.rect))
         }
         // Check the actual protected source pixels, not OCR transcription.
         // Recognition can change on identical lettering after scaling or when

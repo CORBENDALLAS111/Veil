@@ -37,7 +37,7 @@ SHA-256 IPA: `{digest}`
 '''
 
 release = api(f'/repos/{repo}/releases', {'tag_name': tag, 'target_commitish': sha,
-    'name': 'Veil ' + version + ' — апскейл видео', 'prerelease': True, 'draft': True, 'body': body})
+    'name': 'Veil ' + version + ' — Liquid Glass и сохранение', 'prerelease': True, 'draft': True, 'body': body})
 for path in [ipa, root / 'build/artifacts/SHA256SUMS.txt']:
     data = path.read_bytes()
     asset = api(release['upload_url'].split('{', 1)[0] + '?name=' + path.name, data)

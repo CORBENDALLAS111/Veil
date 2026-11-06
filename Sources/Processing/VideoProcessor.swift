@@ -153,7 +153,7 @@ actor VideoProcessor {
     }
 
     func process(_ video: ImportedVideo, mode: VideoOperation, strength: ProcessingStrength,
-                 clarity: Bool = false, resolution: VideoResolution = .original, smoothBlocks: Bool = false,
+                 clarity: Bool = false, resolution: VideoResolution = .original, smoothBlocks: Bool = false, reduceRipple: Bool = false,
                  progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }) async throws -> ProcessedVideo {
         try Task.checkCancellation()
         let started = Date()
@@ -277,7 +277,7 @@ actor VideoProcessor {
                                 guard let image = context.createCGImage(upright, from: upright.extent.integral, format: .RGBA8, colorSpace: colorSpace) else { throw VideoError.read }
                                 let source = PixelRaster.pixels(image)
                                 var pixels = source
-                                try PatternProcessor.processPixels(&pixels, image: image, strength: strength, clarity: clarity) { partial, _ in
+                                try PatternProcessor.processPixels(&pixels, image: image, strength: strength, clarity: clarity, reduceRipple: reduceRipple) { partial, _ in
                                     let value = min(0.96, base + span * partial * 0.9)
                                     progress(value, "Кадр \(frameNumber)")
                                 }
