@@ -34,14 +34,14 @@ final class StudioFlowTests: XCTestCase {
         app.sliders["comparisonSlider"].adjust(toNormalizedSliderPosition: 0.75)
         capture("04-result")
         let scroll = app.scrollViews["studioScroll"]
-        if !app.staticTexts["verificationStatus"].isHittable {
+        if !app.descendants(matching: .any)["verificationStatus"].isHittable {
             scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.65))
                 .press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.2)))
         }
-        XCTAssertTrue(app.staticTexts["verificationStatus"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["verificationStatus"].isHittable)
+        XCTAssertTrue(app.descendants(matching: .any)["verificationStatus"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["verificationStatus"].isHittable)
         XCTAssertTrue(app.buttons["editAgainButton"].isHittable)
-        XCTAssertEqual(app.staticTexts["verificationStatus"].label, "SynthID не проверен")
+        XCTAssertEqual(app.descendants(matching: .any)["verificationStatus"].label, "SynthID не проверен")
         capture("05-result-details")
         app.buttons["editAgainButton"].tap()
         XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 5))
@@ -121,7 +121,7 @@ final class StudioFlowTests: XCTestCase {
             app.buttons["processButton"].tap()
             XCTAssertTrue(app.buttons["saveButton"].waitForExistence(timeout: 60))
             app.buttons["saveButton"].tap()
-            XCTAssertTrue(app.otherElements["systemExportSheet"].waitForExistence(timeout: 15), app.debugDescription)
+            XCTAssertTrue(app.descendants(matching: .any)["systemExportSheet"].waitForExistence(timeout: 15), app.debugDescription)
             XCTAssertEqual(app.state, .runningForeground)
             XCTAssertFalse(app.staticTexts["saveConfirmation"].exists)
             capture(fixture == "-ui-fixture" ? "13-container-photo-export" : "14-container-video-export")

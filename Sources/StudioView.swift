@@ -12,7 +12,57 @@ struct StudioView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        NavigationStack {
+        observedStudio
+        .fileImporter(isPresented: $showsFiles, allowedContentTypes: [.image, .movie]) { result in
+            switch result {
+            case .success(let url): model.selectFile(url)
+            case .failure(let error): model.errorMessage = error.localizedDescription
+            }
+        }
+        .sheet(isPresented: $showsInfo) { AboutView() }
+        .sheet(isPresented: Binding(get: { model.shareURL != nil }, set: { if !$0 { model.shareURL = nil } }),
+               onDismiss: { model.cleanupExports() }) {
+            if let url = model.shareURL { ShareSheet(url: url) }
+        }
+        .alert("Не получилось", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
+            Button("Понятно", role: .cancel) { model.errorMessage = nil }
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
+        .task {
+            model.configure()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-ui-fixture") { model.loadFixture() }
+            if ProcessInfo.processInfo.arguments.contains("-ui-video") { model.loadVideoFixture() }
+            #endif
+        }
+    }
+
+    private var observedStudio: some View {
+        NavigationStack { canvas }
+        .tint(VeilStyle.accent)
+        .preferredColorScheme(previewScheme)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.hasResult)
+        .onChange(of: model.isWorking) { _, working in UIApplication.shared.isIdleTimerDisabled = working }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onChange(of: selectedPhoto) { _, item in
+            if let item { model.select(item) }
+        }
+        .onChange(of: model.strength) { _, _ in model.clearResult() }
+        .onChange(of: model.mode) { _, _ in model.clearResult() }
+        .onChange(of: model.videoMode) { _, mode in
+            model.clearResult()
+            if mode == .upscale && model.videoResolution == .original { model.videoResolution = .fullHD }
+        }
+        .onChange(of: model.videoResolution) { _, _ in model.clearResult() }
+        .onChange(of: model.smoothVideoBlocks) { _, _ in model.clearResult() }
+        .onChange(of: model.format) { _, _ in model.clearResult() }
+        .onChange(of: model.reduceRipple) { _, _ in model.clearResult() }
+        .onChange(of: model.clarity) { _, _ in model.clearResult() }
+        .onChange(of: model.resolution) { _, _ in model.clearResult() }
+    }
+
+    private var canvas: some View {
             GeometryReader { geometry in
                 ScrollView {
                     Group {
@@ -42,7 +92,10 @@ struct StudioView: View {
             .navigationTitle("Veil")
             .toolbarBackground(.hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
+            .toolbar { studioToolbar }
+    }
+
+    @ToolbarContentBuilder private var studioToolbar: some ToolbarContent {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 7) { LucideIcon(name: "aperture", size: 17); Text("VEIL").font(.system(size: 13, weight: .semibold)).tracking(3) }
                         .accessibilityElement(children: .combine).accessibilityLabel("Veil")
@@ -63,52 +116,7 @@ struct StudioView: View {
                         .accessibilityLabel("О приложении")
                         .accessibilityIdentifier("infoButton")
                 }
-            }
-        }
-        .tint(VeilStyle.accent)
-        .preferredColorScheme(previewScheme)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.hasResult)
-        .onChange(of: model.isWorking) { _, working in UIApplication.shared.isIdleTimerDisabled = working }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-        .onChange(of: selectedPhoto) { _, item in
-            if let item { model.select(item) }
-        }
-        .onChange(of: model.strength) { _, _ in model.clearResult() }
-        .onChange(of: model.mode) { _, _ in model.clearResult() }
-        .onChange(of: model.videoMode) { _, mode in
-            model.clearResult()
-            if mode == .upscale && model.videoResolution == .original { model.videoResolution = .fullHD }
-        }
-        .onChange(of: model.videoResolution) { _, _ in model.clearResult() }
-        .onChange(of: model.smoothVideoBlocks) { _, _ in model.clearResult() }
-        .onChange(of: model.format) { _, _ in model.clearResult() }
-        .onChange(of: model.reduceRipple) { _, _ in model.clearResult() }
-        .onChange(of: model.clarity) { _, _ in model.clearResult() }
-        .onChange(of: model.resolution) { _, _ in model.clearResult() }
-        .fileImporter(isPresented: $showsFiles, allowedContentTypes: [.image, .movie]) { result in
-            switch result {
-            case .success(let url): model.selectFile(url)
-            case .failure(let error): model.errorMessage = error.localizedDescription
-            }
-        }
-        .sheet(isPresented: $showsInfo) { AboutView() }
-        .sheet(isPresented: Binding(get: { model.shareURL != nil }, set: { if !$0 { model.shareURL = nil } }),
-               onDismiss: { model.cleanupExports() }) {
-            if let url = model.shareURL { ShareSheet(url: url) }
-        }
-        .alert("Не получилось", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
-            Button("Понятно", role: .cancel) { model.errorMessage = nil }
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
-        .task {
-            model.configure()
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-ui-fixture") { model.loadFixture() }
-            if ProcessInfo.processInfo.arguments.contains("-ui-video") { model.loadVideoFixture() }
-            #endif
-        }
-    }
+                }
 
     private var emptyState: some View {
         VStack(spacing: 24) {
@@ -132,7 +140,35 @@ struct StudioView: View {
 
     private func editor(_ preview: UIImage, photoHeight: CGFloat) -> some View {
         VStack(spacing: 16) {
-            HStack {
+            mediaMetadata
+
+            if let video = model.video {
+                MovieComparisonView(original: video.url, processed: model.videoResult?.url,
+                                    aspectRatio: CGFloat(video.width) / CGFloat(video.height), maximumHeight: photoHeight)
+            } else {
+                ComparisonView(original: preview, processed: model.resultPreview,
+                               maximumHeight: photoHeight, position: $model.comparison)
+            }
+
+            if model.hasResult {
+                HStack(spacing: 12) {
+                    LucideLabel(title: "SynthID не проверен", icon: "info")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("verificationStatus")
+                    Spacer(minLength: 0)
+                    Link(destination: URL(string: "https://synthid.com/")!) {
+                        LucideIcon(name: "arrow-up-right").frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Открыть SynthID Detector")
+                }
+            } else {
+                processingControls
+            }
+        }
+    }
+
+    private var mediaMetadata: some View {
+        HStack {
                 if let source = model.source {
                     Text(verbatim: model.result.map { "\($0.width) × \($0.height)" } ?? "\(source.width) × \(source.height)")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -192,28 +228,10 @@ struct StudioView: View {
                     }
                 }
             }
+    }
 
-            if let video = model.video {
-                MovieComparisonView(original: video.url, processed: model.videoResult?.url,
-                                    aspectRatio: CGFloat(video.width) / CGFloat(video.height), maximumHeight: photoHeight)
-            } else {
-                ComparisonView(original: preview, processed: model.resultPreview,
-                               maximumHeight: photoHeight, position: $model.comparison)
-            }
-
-            if model.hasResult {
-                HStack(spacing: 12) {
-                    LucideLabel(title: "SynthID не проверен", icon: "info")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("verificationStatus")
-                    Spacer(minLength: 0)
-                    Link(destination: URL(string: "https://synthid.com/")!) {
-                        LucideIcon(name: "arrow-up-right").frame(width: 44, height: 44)
-                    }
-                    .accessibilityLabel("Открыть SynthID Detector")
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 14) {
+    private var processingControls: some View {
+        VStack(alignment: .leading, spacing: 14) {
                 if model.video != nil {
                     Picker("Обработка видео", selection: $model.videoMode) {
                         ForEach(VideoOperation.allCases) { mode in
@@ -266,8 +284,6 @@ struct StudioView: View {
                     Text("Прозрачность заменится белым фоном").font(.caption).foregroundStyle(.secondary)
                 }
                 }.padding(16).modifier(VeilGlassSurface())
-            }
-        }
     }
 
     private var actions: some View {

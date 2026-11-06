@@ -14,5 +14,6 @@ struct LucideLabel: View {
     let icon: String
     var body: some View {
         HStack(spacing: 10) { LucideIcon(name: icon, size: 20); Text(title) }
+            .accessibilityElement(children: .combine)
     }
 }
