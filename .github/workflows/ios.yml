@@ -121,7 +121,7 @@ jobs:
           path: build/upscale-check/
           retention-days: 30
   test:
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -149,6 +149,7 @@ jobs:
           xcrun simctl install "$DEVICE_ID" build/simulator/Build/Products/Debug-iphonesimulator/Veil.app
           xcrun simctl privacy "$DEVICE_ID" grant photos-add io.github.corbendallas111.veil
       - name: Unit tests and native UI screenshots
+        timeout-minutes: 12
         env:
           DESTINATION: ${{ steps.simulator.outputs.destination }}
         run: |
@@ -157,7 +158,15 @@ jobs:
             -destination "$DESTINATION" -derivedDataPath build/simulator \
             -resultBundlePath build/Tests.xcresult CODE_SIGNING_ALLOWED=NO \
             -parallel-testing-enabled NO 2>&1 | tee build/tests.log
+      - name: Preserve test logs before collecting result attachments
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Veil-test-logs
+          path: build/*.log
+          retention-days: 14
       - name: Export screenshots
+        timeout-minutes: 3
         if: always()
         run: |
           if [ -d build/Tests.xcresult ]; then

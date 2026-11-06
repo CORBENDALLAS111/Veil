@@ -63,7 +63,7 @@ final class StudioFlowTests: XCTestCase {
 
     func testVideoProcessingAndComparison() {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-video", "-ui-dark"]
+        app.launchArguments = ["-ui-video", "-ui-video-short", "-ui-dark"]
         app.launch()
         XCTAssertTrue(app.buttons["processButton"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.descendants(matching: .any)["videoPreview"].exists)
