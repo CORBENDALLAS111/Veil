@@ -53,7 +53,7 @@ enum RippleReducer {
                             let i = y * side + x, partner = ((side - y) % side) * side + (side - x) % side
                             let fx = Float(min(x, side - x)) / Float(side), fy = Float(min(y, side - y)) / Float(side)
                             let radius = sqrt(fx * fx + fy * fy)
-                            guard i < partner, radius > 0.045, radius < 0.45, power[i] > 4096 else { continue }
+                            guard i < partner, radius > 1 / 48.0, radius < 0.45, power[i] > 4096 else { continue }
                             var localMaximum: Float = 0, background: Float = 0, samples: Float = 0
                             for dy in -4...4 { for dx in -4...4 where dx != 0 || dy != 0 {
                                 let n = ((y + dy + side) % side) * side + (x + dx + side) % side
